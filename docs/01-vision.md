@@ -2,11 +2,11 @@
 
 ## One line
 
-Verity tells you exactly what is costing you frames, fixes it temporarily and reversibly, and proves the fix worked on your machine.
+Verity tells you exactly what is making your PC slow or unsmooth, in games and in everyday use, fixes it temporarily and reversibly, and proves the fix worked on your machine.
 
 ## The problem with existing optimizers
 
-Most "game boosters" apply a fixed list of tweaks blindly. They do not know what is wrong with a particular machine, they do not measure before and after, and many of their tweaks do nothing or cause harm. The user ends up with a changed system and no evidence.
+Most "PC optimizers" and "game boosters" apply a fixed list of tweaks blindly. They do not know what is wrong with a particular machine, they do not measure before and after, and many of their tweaks do nothing or cause harm. The user ends up with a changed system and no evidence.
 
 Good measurement tools exist separately: frame capture tools, DPC latency checkers, hardware monitors. None of them act on what they find, and none of them connect a stutter to its cause.
 
@@ -29,6 +29,20 @@ When a game starts, Verity applies that game's profile. When the game exits, eve
 ### 5. Total reversibility
 Every change is journaled before it is made and can be reverted individually, per session, or all at once. A crash or power loss mid-session is repaired at next boot. Spec: `05-actions.md`, `09-safety.md`.
 
+### 6. Everyday use (added 2026-11-14)
+The same loop applies when no game is running. A PC doing normal work has no frame rate of its own, so Verity measures what people actually notice:
+
+| What the user notices | What Verity measures, passively |
+|---|---|
+| Choppy desktop: scrolling, dragging windows | Frame pacing of the desktop compositor (`dwm.exe`), captured like a game |
+| Apps freezing ("Not responding") | App-hang events Windows already logs, with app name and duration |
+| Slow boot or shutdown | Boot and shutdown timings Windows already logs, with the programs that delayed them |
+| Fans loud, laptop slow, battery draining | Background CPU, disk and memory use per process |
+| Audio crackles, mouse stutters | Driver DPC/ISR latency from kernel tracing |
+| Slow on battery or when hot | Throttling and power-limit counters |
+
+Actions are the same catalog: startup items with boot time as the proof, power settings per activity, and background throttling while the user works in an app they choose. Nothing in `09-safety.md` is loosened; the snake-oil blacklist matters even more here, because it is exactly what most "PC optimizers" sell. Where this lands in the roadmap is in `docs/notes/decisions.md`.
+
 ## What makes it different, concretely
 
 | Typical optimizer | Verity |
@@ -46,6 +60,7 @@ Honest framing: the individual operating-system levers Verity uses are documente
 ## Target user and hardware
 
 - A PC gamer, primarily on a gaming laptop, who wants smoother gameplay and wants to understand their machine
+- Anyone who wants their PC to stay fast and smooth in everyday work, and wants proof that a change helped instead of another "optimizer" that guesses
 - Windows 10 22H2 or Windows 11, x64
 - Hybrid graphics (integrated + discrete) and hybrid CPUs (performance + efficiency cores) are first-class cases
 

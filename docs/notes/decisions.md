@@ -115,3 +115,13 @@ built and tested.
 Dependencies added in M1 and why: `rusqlite` (bundled SQLite) and `zstd`, both
 named in `CLAUDE.md`; `sha2` to check PresentMon's hash before running it as
 SYSTEM (`docs/09-safety.md` §6).
+
+## 2026-11-14 — Scope: games and everyday use
+
+**Verity covers everyday PC use, not only games** (decided by the project owner).
+`docs/01-vision.md` gains pillar 6 with what is measured when no game runs. No
+safety rule changes. Roadmap fit, so no milestone is derailed:
+- right after M1: `verity record --desktop` (frame pacing of `dwm.exe`)
+- M2: Doctor rules are written for any PC, plus rules for app hangs and boot time
+- M4: Session Mode profiles can be triggered by any app the user picks
+These are added to each milestone's acceptance criteria when that milestone starts.

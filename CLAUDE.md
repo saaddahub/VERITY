@@ -1,6 +1,6 @@
 # Verity — instructions for Claude Code
 
-Verity is a Windows game-performance optimizer that **measures first, changes second, and proves every change**. This file is the standing brief. The full spec is in `docs/`.
+Verity is a Windows performance tool, for games and everyday use, that **measures first, changes second, and proves every change**. This file is the standing brief. The full spec is in `docs/`.
 
 ## Read before coding
 

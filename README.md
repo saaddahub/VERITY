@@ -2,7 +2,7 @@
 
 # Verity
 
-**A Windows game-performance tool that measures first, changes second, and proves every change on your machine.**
+**A Windows performance tool for games and everyday use. It measures first, changes second, and proves every change on your machine.**
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows)](#requirements)
 [![Rust](https://img.shields.io/badge/rust-stable-B7410E?logo=rust)](https://www.rust-lang.org/)
@@ -13,12 +13,12 @@
 
 ---
 
-Most "game boosters" apply a fixed list of tweaks blindly. They don't know what is wrong with your
+Most "PC optimizers" and "game boosters" apply a fixed list of tweaks blindly. They don't know what is wrong with your
 machine, they never measure before and after, and many of their tweaks do nothing or make things
 worse. You end up with a changed system and no evidence.
 
-Verity closes the loop: **measure → attribute → act → verify**. It records how your games actually
-run, works out what is costing you frames, changes only what is relevant, temporarily and
+Verity closes the loop: **measure → attribute → act → verify**. It records how your PC actually
+runs, in games and in everyday work, works out what is slowing it down, changes only what is relevant, temporarily and
 reversibly, and keeps a change only if it measurably helped. When it can't show an effect, it says
 so.
 
@@ -44,11 +44,12 @@ so.
 
 | | Feature | What it does | Status |
 |---|---|---|---|
-| 📈 | **Frame capture** | Records every presented frame of a running game: average FPS, 1% and 0.1% lows, pacing, and stutters (hitches). | ✅ Working |
+| 📈 | **Frame capture** | Records every presented frame of a running game or app: average FPS, 1% and 0.1% lows, pacing, and stutters (hitches). | ✅ Working |
 | 🎯 | **GPU attribution** | Tells you which GPU a game is really rendering on, without touching the game. Catches the classic "laptop game running on integrated graphics". | ✅ Working |
-| 🩺 | **Doctor** | Finds the problems that cost real performance: wrong GPU, display stuck at 60 Hz, a charger that can't keep up, thermal throttling, background hogs. Every finding comes with numbers. | 🔜 Next (M2) |
+| 🩺 | **Doctor** | Finds the problems that cost real performance: wrong GPU, display stuck at 60 Hz, a charger that can't keep up, thermal throttling, background hogs, slow startup apps. Every finding comes with numbers. | 🔜 Next (M2) |
+| 💻 | **Everyday PC** | Measures what you notice when no game is running: desktop smoothness, apps freezing, slow boot, background work draining the battery, audio crackles from driver latency. | 📋 Planned (after M1, M2, M5) |
 | ↩️ | **Reversible actions** | Every change is journaled before it is made and can be undone one at a time, per session, or all at once, even after a crash or power cut. | 📋 Planned (M3) |
-| 🎮 | **Session Mode** | Applies a game's profile when it starts and puts everything back when it exits. Background work is slowed down, never killed. | 📋 Planned (M4) |
+| 🎮 | **Session Mode** | Applies a profile when a game, or any app you choose, starts and puts everything back when it exits. Background work is slowed down, never killed. | 📋 Planned (M4) |
 | 🔍 | **Frame Story** | Matches each stutter to what the system was doing at that moment: a driver, a background process, a virus scan, a power change. | 📋 Planned (M5) |
 | 🖥️ | **Desktop app** | Window, timeline charts and a tray icon. | 📋 Planned (M6) |
 | 🧪 | **The Lab** | Randomized A/B tests with real statistics. The verdict is *improves*, *hurts*, *no measurable effect* or *inconclusive*. | 📋 Planned (M7) |
@@ -61,7 +62,7 @@ is in [`docs/09-safety.md`](docs/09-safety.md).
 - **Evidence over folklore.** No optimization ships without a way to measure its effect on your machine.
 - **Temporary over permanent.** Changes are session-scoped by default and undone automatically.
 - **Throttle, don't kill.** Background work is steered with Windows' own scheduling tools; nothing is killed by default.
-- **Hands off the game.** Verity never reads or writes game memory, injects code, hooks, installs a kernel driver or modifies game files. It observes games passively through system-wide events, which keeps it out of anti-cheat territory.
+- **Hands off your games and apps.** Verity never reads or writes another program's memory, injects code, hooks, installs a kernel driver or modifies game files. It observes passively through system-wide events, which also keeps it out of anti-cheat territory.
 - **No snake oil.** RAM cleaners, "debloat" scripts, mass service disabling, registry tweak packs and the like are blacklisted, with the reason for each.
 - **Honest output.** No fake scores, no invented percentages. If there is no measurable effect, Verity says so.
 - **Fully offline.** No accounts, no telemetry upload, no network connections. All data stays on your machine.
@@ -91,7 +92,7 @@ flowchart LR
 ```
 
 - A **Windows service** does the privileged work: capture, and later diagnosis and reversible changes. It accepts requests from user-level clients over a named pipe with a strict access list, and treats every client as untrusted.
-- **Frames** come from [PresentMon](https://github.com/GameTechDev/PresentMon), Intel's open-source frame-timing tool, run as a child process. It reads system-wide graphics events, so no handle to the game is ever opened. Its binary is hash-checked before every launch.
+- **Frames** come from [PresentMon](https://github.com/GameTechDev/PresentMon), Intel's open-source frame-timing tool, run as a child process. It reads system-wide graphics events, so no handle to the program being measured is ever opened. Its binary is hash-checked before every launch.
 - **System counters** (CPU, memory, per-process GPU engine use) are sampled once a second through Windows' performance counters.
 - **Sessions** are stored in SQLite, with frames compressed in roughly ten-second chunks.
 
@@ -158,7 +159,7 @@ verity sessions export <id> --csv <path>
 verity service install | start | stop | uninstall
 ```
 
-Record a game until it exits (or pass `--duration`):
+Record a game or app until it exits (or pass `--duration`):
 
 ```console
 > verity record --exe framegen.exe
@@ -240,9 +241,10 @@ was verified, is in [`docs/notes/STATUS.md`](docs/notes/STATUS.md).
 |---|---|---|
 | M0 | Skeleton: service, IPC, system info | ✅ Done |
 | M1 | Telemetry: frame capture, metrics, sessions | ✅ Automated criteria pass; real-game check open |
-| M2 | Doctor: diagnostic rules | 🔜 Next |
+| — | Desktop smoothness capture (`record --desktop`) | 📋 Planned, right after M1 |
+| M2 | Doctor: diagnostic rules, for gaming and everyday use | 🔜 Next |
 | M3 | Actions and journal | |
-| M4 | Session Mode | |
+| M4 | Session Mode, for games and chosen apps | |
 | M5 | Frame Story | |
 | M6 | Desktop app | |
 | M7 | The Lab | |
@@ -256,7 +258,7 @@ recorded in [`docs/notes/decisions.md`](docs/notes/decisions.md).
 
 | Document | Contents |
 |---|---|
-| [Vision](docs/01-vision.md) | What Verity is, why it is different, what it will never do |
+| [Vision](docs/01-vision.md) | What Verity is, why it is different, what it will never do, everyday use |
 | [Architecture](docs/02-architecture.md) | Processes, crates, IPC, storage schema, timekeeping |
 | [Telemetry](docs/03-telemetry.md) | Frame pacing, system counters, kernel tracing |
 | [Doctor](docs/04-doctor.md) | Diagnostic rules |
