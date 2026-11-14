@@ -1,0 +1,136 @@
+# 05 — Actions
+
+An Action is one reversible change to the system. Nothing in Verity changes system state except through an Action.
+
+Items marked **(verify)** must be confirmed with a probe before being relied on.
+
+## Action interface
+
+```rust
+pub trait Action: Send + Sync {
+    fn info(&self) -> ActionInfo;
+    /// Is this applicable here, and what is the current state?
+    fn probe(&self, sys: &dyn Sys) -> Result<Probe>;
+    /// Capture everything needed to undo. Must be serializable and self-contained.
+    fn snapshot(&self, sys: &dyn Sys, params: &Params) -> Result<Snapshot>;
+    /// Describe the exact change without making it.
+    fn plan(&self, sys: &dyn Sys, params: &Params) -> Result<Plan>;
+    fn apply(&self, sys: &dyn Sys, params: &Params) -> Result<()>;
+    fn revert(&self, sys: &dyn Sys, snapshot: &Snapshot) -> Result<RevertOutcome>;
+    /// Is the applied state still in effect? (Detects drift caused by the user or other tools.)
+    fn verify(&self, sys: &dyn Sys, params: &Params) -> Result<bool>;
+}
+
+pub struct ActionInfo {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub scope: Scope,            // Session | Persistent
+    pub executor: Executor,      // Service | Agent
+    pub risk: Risk,              // Low | Medium | High
+    pub needs_reboot: bool,
+    pub default_enabled: bool,
+    pub lab_testable: bool,
+    pub what: &'static str, pub why: &'static str, pub downside: &'static str,
+}
+```
+
+## The journal protocol
+
+For every apply:
+
+1. `snapshot()` → write a journal row with state `pending`, including params and snapshot. Commit to disk.
+2. `apply()`.
+3. On success mark `applied`. On failure call `revert()` with the snapshot and mark `reverted` or `revert_failed` with the error.
+
+For every revert:
+
+1. Load the row. If the current state no longer matches what Verity applied (the user or another tool changed it since), **do not overwrite it**: mark `superseded` and report it.
+2. Otherwise `revert()` and mark `reverted`.
+
+Session end reverts that session's rows in reverse order of application.
+
+### Crash recovery
+
+At every service start, before anything else: find all rows with scope `session` in state `pending` or `applied`, and revert them in reverse order. Process-targeted snapshots are skipped if the process identity `(pid, creation time)` no longer exists. Log a recovery report and surface it in the UI.
+
+### Process-targeted actions
+
+Snapshots store `(pid, creation time, image name)` and the prior value per process. Revert only touches a process whose identity still matches.
+
+## Exclusion list for background actions
+
+Background actions never touch:
+
+- The game process, its children, and its launcher
+- Anything in session 0 (services, system processes)
+- Anti-cheat processes and services, matched by a maintained name list (EasyAntiCheat, BattlEye, Vanguard, and others)
+- Processes the OS refuses to open, including protected processes. Access denied is a normal result, not an error.
+- Processes with an active audio session (reported by the agent)
+- The foreground process and any process whose window was foreground in the last 2 minutes
+- Voice chat, capture and streaming software by default (configurable name list)
+- Security software
+- Verity itself
+- Anything on the user's own exclusion list
+
+## Catalog
+
+### Session scope, executed by the service
+
+| ID | What it does | Mechanism | Risk | Default |
+|---|---|---|---|---|
+| `power.session_overlay` | Sets the Windows power mode to best performance while on AC | Undocumented `PowerSetActiveOverlayScheme` in `powrprof.dll` with the best-performance overlay GUID **(verify)** signature and GUIDs; fallback: activate a high-performance scheme with `PowerSetActiveScheme` | Low | On |
+| `power.session_scheme` | Activates a Verity-owned power scheme for the session | `PowerDuplicateScheme` from the user's scheme once; tune processor settings by their powercfg aliases (energy performance preference, boost mode, minimum unparked cores) with `PowerWriteACValueIndex`; `PowerSetActiveScheme`. Resolve setting GUIDs from `powercfg /aliases` and hard-code them only after **(verify)**. AC values only; never change DC values. | Medium | Off; Lab first |
+| `sched.background_ecoqos` | Marks eligible background processes as efficiency-class | `SetProcessInformation(ProcessPowerThrottling)` with `PROCESS_POWER_THROTTLING_EXECUTION_SPEED` | Low | On |
+| `sched.background_cpusets` | On hybrid CPUs, steers eligible background processes to efficiency cores | `GetSystemCpuSetInformation` to find the lowest `EfficiencyClass` set; `SetProcessDefaultCpuSets`. Not applicable on non-hybrid CPUs. Newly started background processes are handled by watching process-start events. | Low | On (hybrid only) |
+| `sched.game_priority` | Raises the game's priority class one step | `SetPriorityClass(ABOVE_NORMAL_PRIORITY_CLASS)` with a handle opened for `PROCESS_SET_INFORMATION` only. If access is denied, skip silently. Never `HIGH`, never `REALTIME`. Not applied to games on the anti-cheat caution list (see `09-safety.md`). | Medium | Off; Lab first |
+| `services.session_pause` | Stops a small allowlisted set of services for the session and restarts them after | Service Control Manager. Allowlist v1: Windows Search indexer only. Snapshot records prior running state and start type; start type is never changed. | Medium | Off |
+| `memory.standby_purge` | Clears the standby cache once, at session start, only when gated | `NtSetSystemInformation` memory-list command **(verify)**; needs `SeProfileSingleProcessPrivilege`. Gate: available memory < 15% and standby cache > 25% of total. One-shot; nothing to revert. | Medium | Off |
+
+### Persistent scope, executed by the agent (per-user settings)
+
+| ID | What it does | Mechanism | Risk | Default |
+|---|---|---|---|---|
+| `gpu.preference` | Sets a game exe to the high-performance GPU | `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`, value named by the full exe path, data `GpuPreference=2;` | Low | Suggested |
+| `display.max_refresh` | Sets the display to its highest refresh rate at the current resolution | `EnumDisplaySettingsExW`, `ChangeDisplaySettingsExW` with test first, then update registry | Low | Suggested |
+| `dx.global_settings` | Enables optimizations for windowed games and variable refresh | Same key, value `DirectXUserGlobalSettings` **(verify)** exact token names | Low | Suggested |
+| `gamemode.enable` | Turns on Game Mode | `HKCU\Software\Microsoft\GameBar` **(verify)** value names | Low | Suggested |
+| `startup.disable_item` | Disables one startup entry the same way Task Manager does | `...\Explorer\StartupApproved\Run` (and `Run32`, `StartupFolder`) binary flag **(verify)** byte layout; never deletes the Run entry itself | Low | Per item, user picks |
+
+### Persistent scope, executed by the service (machine settings, elevated client required)
+
+| ID | What it does | Mechanism | Risk | Default |
+|---|---|---|---|---|
+| `sched.game_priority_ifeo` | Sets a per-exe default priority without ever opening the game process | `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\<exe>\PerfOptions`, `CpuPriorityClass` **(verify)** value mapping | Medium | Off; Lab first |
+| `gpu.hags_toggle` | Toggles hardware-accelerated GPU scheduling | `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers`, `HwSchMode`; needs reboot | Medium | Off; Lab long-form only; ask the human |
+
+### Experimental (off, hidden behind an "experimental" setting, Lab only)
+
+| ID | Notes |
+|---|---|
+| `timer.resolution` | On current Windows, a timer-resolution request from another process no longer affects the game unless a machine-wide registry switch is set and the system rebooted **(verify)**. Costs battery. Only expose as a Lab experiment with a clear warning. |
+| `sched.game_cpusets` | Restricting the *game* to performance cores. The OS scheduler usually does this well already; can hurt. Lab only. |
+
+### Notify-only (Verity detects and guides, never changes)
+
+Windows Update activity, Defender scans, cloud-sync uploads, vendor performance profiles, BIOS memory profile, discrete-only display mode, driver updates, memory integrity.
+
+## Adding an action
+
+An action may be added to the catalog only if all are true:
+
+1. Its mechanism is a documented API or a registry value the OS itself reads, or it is isolated as undocumented with a fallback.
+2. `snapshot` and `revert` restore the exact prior state.
+3. It has a stated downside.
+4. It is not on the blacklist in `09-safety.md`.
+5. It has unit tests against fakes for apply, revert, revert-after-drift and dry-run, and an ignored admin integration test that applies and reverts for real and compares state.
+
+## CLI
+
+```
+verity actions list
+verity actions plan <id> [--param k=v ...]       # dry run
+verity actions apply <id> [--param k=v ...]
+verity actions revert <journal-id>
+verity journal list [--session <id>]
+verity journal revert-all
+```
