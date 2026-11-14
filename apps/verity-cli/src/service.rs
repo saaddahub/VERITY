@@ -13,6 +13,7 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 const NAME: &str = "Verity";
 const EXE: &str = "verity-service.exe";
+const PRESENTMON: &str = verity_telemetry::presentmon::FILE_NAME;
 
 fn manager(access: ServiceManagerAccess) -> anyhow::Result<ServiceManager> {
     ServiceManager::local_computer(None::<&str>, access)
@@ -56,6 +57,24 @@ pub fn install(exe: Option<PathBuf>) -> anyhow::Result<()> {
     let dst = dir.join(EXE);
     std::fs::copy(&src, &dst)
         .with_context(|| format!("copy service binary to {}", dst.display()))?;
+
+    // PresentMon goes beside the service: next to this exe in a release layout,
+    // or in tools/presentmon when run from a cargo target directory.
+    let from_repo = src
+        .with_file_name("../../tools/presentmon")
+        .join(PRESENTMON);
+    match [src.with_file_name(PRESENTMON), from_repo]
+        .iter()
+        .find(|p| p.is_file())
+    {
+        Some(found) => {
+            std::fs::copy(found, dir.join(PRESENTMON)).context("copy PresentMon")?;
+        }
+        None => println!(
+            "warning: {PRESENTMON} not found, so `verity record` will not work; \
+             see tools/presentmon/README.md, then install again"
+        ),
+    }
 
     let info = ServiceInfo {
         name: OsString::from(NAME),
@@ -116,6 +135,7 @@ pub fn uninstall() -> anyhow::Result<()> {
         }
         std::thread::sleep(Duration::from_millis(200));
     }
+    let _ = std::fs::remove_file(dir.join(PRESENTMON));
     let _ = std::fs::remove_dir(&dir); // only succeeds if empty
     if exe.exists() {
         println!(

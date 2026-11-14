@@ -1,7 +1,9 @@
 //! Domain types and the OS traits every other crate talks through.
 //! Real implementations live in `verity-sys`; tests use fakes.
 
+pub mod metrics;
 pub mod system;
+pub mod telemetry;
 
 pub use system::*;
 

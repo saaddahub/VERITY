@@ -2,7 +2,9 @@
 //! Nothing above this crate contains `unsafe`.
 
 pub mod paths;
+pub mod pdh;
 pub mod pipe;
+pub mod process;
 mod security;
 mod system;
 

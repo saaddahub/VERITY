@@ -20,9 +20,10 @@ Overhead budget on an 8-core machine: Light < 0.3% CPU, Standard < 1%, Deep < 3%
 
 Use the open-source PresentMon console application as the frame source. It consumes the DXGI, D3D9 and DxgKrnl ETW providers and emits one CSV row per presented frame. This observes the game passively; no handle to the game process is opened.
 
-- Launch from the service (SYSTEM), targeting the game by process id or name, writing CSV to stdout, with QPC timestamps, a private session name (`VerityPM`), stop-existing-session, and terminate-on-process-exit. **(verify)** the exact flag names against `PresentMon.exe --help` for the bundled version and pin that version.
+- Launch from the service (SYSTEM), targeting the game by process id, writing CSV to stdout, with QPC timestamps, a private session name (`VerityPM`), stop-existing-session, and terminate-on-process-exit. Verified for the pinned PresentMon 2.6.0: `--process_id <pid> --output_stdout --qpc_time --v2_metrics --session_name VerityPM --stop_existing_session --terminate_on_proc_exit --no_console_stats`. Capturing needs administrator rights.
+- Redirected stdout is UTF-16 LE with a byte-order mark; decode before parsing.
 - Parse the header row dynamically and map columns by name. Fail loudly on an unknown layout.
-- Expected columns in 2.x **(verify)**: application, process id, swap chain, present mode, allows tearing, CPU start time, frame time, CPU busy, CPU wait, GPU latency, GPU time, GPU busy, GPU wait, display latency, displayed time.
+- Columns in 2.6.0 (verified): `Application, ProcessID, SwapChainAddress, PresentRuntime, SyncInterval, PresentFlags, AllowsTearing, PresentMode, CPUStartQPC, FrameTime, CPUBusy, CPUWait, GPULatency, GPUTime, GPUBusy, GPUWait, DisplayLatency, DisplayedTime, AnimationError, AnimationTime, MsFlipDelay, AllInputToPhotonLatency, ClickToPhotonLatency`. A missing value is the text `NA`.
 - If PresentMon exits unexpectedly, restart it once, record the gap as an event of kind `capture_gap`, and never count the gap as a hitch.
 - Ship its license text in the installer and the About screen.
 
@@ -129,7 +130,7 @@ All defined once in `verity-core::metrics` and used everywhere.
 | Pacing spread | interquartile range of frame time |
 | Bottleneck | per 1 s window: **GPU-bound** if median `gpu_busy ≥ 0.90 × frame_time`; **CPU-bound** if `gpu_busy ≤ 0.75 × frame_time` and not capped; **capped** if frame time sits within ±3% of a refresh-rate divisor or a constant for the window |
 
-Percentiles use the displayed-frame series when `displayed_time` is available, otherwise frame time. State which was used in the summary.
+Percentiles use frame time. (The displayed-time series was tried first and dropped: when the game window is hidden most frames are never displayed and the rest stay up for seconds, so the lows collapse. See `docs/notes/decisions.md`.)
 
 Exclude from all metrics: the first 5 seconds after capture start, capture gaps, and periods where the game is not the foreground window (the agent supplies foreground changes as events).
 

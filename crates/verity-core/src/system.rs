@@ -82,6 +82,9 @@ pub struct Gpu {
     pub vendor_id: u32,
     pub vendor: String,
     pub dedicated_vram_bytes: u64,
+    /// Every adapter LUID that is this chip (virtual display adapters add extras).
+    #[serde(default)]
+    pub luids: Vec<u64>,
 }
 
 pub fn vendor_name(vendor_id: u32) -> &'static str {

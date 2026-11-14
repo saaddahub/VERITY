@@ -1,5 +1,7 @@
 //! The Verity Windows service (LocalSystem). Registered by `verity service install`.
 
+mod methods;
+
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
@@ -60,12 +62,21 @@ fn run() -> anyhow::Result<()> {
     )?;
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "service started");
 
+    let store = verity_store::Store::open(&data.join("verity.db")).context("open database")?;
+    // PresentMon sits beside this binary in the install directory, which
+    // standard users cannot write to; its hash is checked before every launch.
+    let presentmon =
+        std::env::current_exe()?.with_file_name(verity_telemetry::presentmon::FILE_NAME);
+    let service = Arc::new(methods::Service::new(store, presentmon.clone()));
+
     let result = tokio::runtime::Runtime::new()?
-        .block_on(verity_ipc::server::serve(
-            verity_ipc::PIPE_NAME,
-            Arc::new(verity_sys::WinSystemInfo),
-            stop_rx,
-        ))
+        .block_on(async {
+            if verity_telemetry::capture::verify_binary(&presentmon).is_ok() {
+                // Clears a trace session orphaned by a crash or a kill.
+                verity_telemetry::capture::stop_session(&presentmon).await;
+            }
+            verity_ipc::server::serve(verity_ipc::PIPE_NAME, service, stop_rx).await
+        })
         .context("IPC server");
 
     tracing::info!("service stopping");

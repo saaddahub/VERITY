@@ -1,0 +1,9 @@
+[package]
+name = "verity-stressors"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "stress"
+path = "src/main.rs"

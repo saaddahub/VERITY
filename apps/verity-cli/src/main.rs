@@ -1,18 +1,23 @@
 //! `verity` command-line client.
 
 mod service;
+mod sessions;
 
 use std::process::ExitCode;
 
 use anyhow::Context;
-use serde_json::json;
+use serde_json::{json, Value};
 use verity_core::{CoreKind, SystemInfo};
 use verity_ipc::{Client, Role, PIPE_NAME};
 
 const USAGE: &str = "usage:
   verity service install [--exe <path to verity-service.exe>]   (elevated)
   verity service start | stop | uninstall                       (elevated)
-  verity system info [--json]";
+  verity system info [--json]
+  verity record --pid <pid> | --exe <name> [--duration <seconds>]
+  verity sessions list
+  verity sessions show <id> [--json]
+  verity sessions export <id> --csv <path>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -25,6 +30,11 @@ fn main() -> ExitCode {
         ["service", "uninstall"] => service::uninstall(),
         ["system", "info"] => system_info(false),
         ["system", "info", "--json"] => system_info(true),
+        ["record", rest @ ..] => sessions::record(rest),
+        ["sessions", "list"] => sessions::list(),
+        ["sessions", "show", id] => sessions::show(id, false),
+        ["sessions", "show", id, "--json"] => sessions::show(id, true),
+        ["sessions", "export", id, "--csv", path] => sessions::export(id, path),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(2);
@@ -39,14 +49,19 @@ fn main() -> ExitCode {
     }
 }
 
-fn system_info(as_json: bool) -> anyhow::Result<()> {
-    let value = tokio::runtime::Builder::new_current_thread()
+/// One request to the service.
+fn call(method: &str, params: Value) -> anyhow::Result<Value> {
+    Ok(tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
         .block_on(async {
             let mut client = Client::connect(PIPE_NAME, Role::Cli).await?;
-            client.call("system.info", json!({})).await
-        })?;
+            client.call(method, params).await
+        })?)
+}
+
+fn system_info(as_json: bool) -> anyhow::Result<()> {
+    let value = call("system.info", json!({}))?;
     let mut info: SystemInfo = serde_json::from_value(value).context("decode system.info")?;
 
     // The service runs in session 0 and may not see the user's desktop, so the

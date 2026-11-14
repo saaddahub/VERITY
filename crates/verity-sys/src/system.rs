@@ -200,7 +200,13 @@ fn gpus() -> Result<Vec<Gpu>, OsError> {
         // shortcut: two identical physical GPUs collapse into one; key on the
         // PnP instance if multi-GPU desktops ever matter.
         let chip = (d.VendorId, d.DeviceId, d.SubSysId, d.Revision);
-        if d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 || seen.contains(&chip) {
+        let luid = (d.AdapterLuid.HighPart as u64) << 32 | d.AdapterLuid.LowPart as u64;
+        if d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
+            continue;
+        }
+        if let Some(i) = seen.iter().position(|c| *c == chip) {
+            let known: &mut Gpu = &mut out[i];
+            known.luids.push(luid);
             continue;
         }
         seen.push(chip);
@@ -209,6 +215,7 @@ fn gpus() -> Result<Vec<Gpu>, OsError> {
             vendor_id: d.VendorId,
             vendor: vendor_name(d.VendorId).to_string(),
             dedicated_vram_bytes: d.DedicatedVideoMemory as u64,
+            luids: vec![luid],
         });
     }
     Ok(out)

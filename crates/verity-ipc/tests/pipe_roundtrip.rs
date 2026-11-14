@@ -3,37 +3,25 @@
 
 use std::sync::Arc;
 
-use serde_json::json;
-use verity_core::*;
-use verity_ipc::{server, Client, ClientError, Role};
+use serde_json::{json, Value};
+use verity_ipc::dispatch::Handler;
+use verity_ipc::{server, Client, ClientError, Role, RpcError, METHOD_NOT_FOUND};
 
 struct Fake;
-impl SystemInfoApi for Fake {
-    fn system_info(&self) -> Result<SystemInfo, OsError> {
-        Ok(SystemInfo {
-            windows: WindowsVersion {
-                major: 10,
-                build: 22631,
-                ubr: 0,
-                display_version: None,
-            },
-            cpu: Cpu {
-                model: "Fake".into(),
-                logical: vec![],
-            },
-            gpus: vec![],
-            displays: vec![],
-            power: PowerState::from_raw(1, 128, 255),
-            power_scheme: PowerScheme {
-                guid: "g".into(),
-                name: None,
-            },
-        })
+impl Handler for Fake {
+    async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        match method {
+            "echo" => Ok(params),
+            other => Err(RpcError::new(
+                METHOD_NOT_FOUND,
+                format!("unknown method {other}"),
+            )),
+        }
     }
 }
 
 #[tokio::test]
-async fn system_info_over_a_real_pipe() {
+async fn calls_over_a_real_pipe() {
     let name = format!(r"\\.\pipe\verity-test-{}", std::process::id());
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     let server = {
@@ -45,12 +33,11 @@ async fn system_info_over_a_real_pipe() {
     // Two clients at once: the server must keep a fresh instance listening.
     let mut a = Client::connect(&name, Role::Cli).await.unwrap();
     let mut b = Client::connect(&name, Role::Ui).await.unwrap();
-    let info: SystemInfo =
-        serde_json::from_value(a.call("system.info", json!({})).await.unwrap()).unwrap();
-    assert_eq!(info.windows.build, 22631);
+    let sent = json!({"build": 22631});
+    assert_eq!(a.call("echo", sent.clone()).await.unwrap(), sent);
     assert!(matches!(
         b.call("nope", json!({})).await,
-        Err(ClientError::Rpc(e)) if e.code == verity_ipc::METHOD_NOT_FOUND
+        Err(ClientError::Rpc(e)) if e.code == METHOD_NOT_FOUND
     ));
 
     stop_tx.send(true).unwrap();

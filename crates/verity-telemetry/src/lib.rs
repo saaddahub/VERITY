@@ -1,1 +1,4 @@
-//! Frame capture, PDH sampler, ETW consumers (M1). Stub until its milestone.
+//! Frame capture, PDH sampler, ETW consumers.
+
+pub mod capture;
+pub mod presentmon;

@@ -5,3 +5,9 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+verity-core.workspace = true
+verity-sys.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+sha2 = "0.10"

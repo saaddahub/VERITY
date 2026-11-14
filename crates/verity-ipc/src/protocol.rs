@@ -13,6 +13,9 @@ pub const INVALID_PARAMS: i64 = -32602;
 pub const INTERNAL_ERROR: i64 = -32603;
 pub const HELLO_REQUIRED: i64 = -32001;
 pub const VERSION_MISMATCH: i64 = -32002;
+/// The request was valid but the capture could not run or finish.
+pub const CAPTURE_FAILED: i64 = -32003;
+pub const NOT_FOUND: i64 = -32004;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Request {
@@ -71,6 +74,15 @@ impl Response {
 pub struct RpcError {
     pub code: i64,
     pub message: String,
+}
+
+impl RpcError {
+    pub fn new(code: i64, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
