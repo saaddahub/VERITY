@@ -1,0 +1,14 @@
+[package]
+name = "verity-ipc"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+verity-core.workspace = true
+verity-sys.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true

@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "apps/verity-service", "apps/verity-cli", "tools/probes"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+verity-core = { path = "crates/verity-core" }
+verity-sys = { path = "crates/verity-sys" }
+verity-ipc = { path = "crates/verity-ipc" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+tracing-appender = "0.2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+windows-service = "0.8"

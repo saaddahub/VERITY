@@ -1,0 +1,10 @@
+[package]
+name = "verity-probes"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+verity-core.workspace = true
+verity-sys.workspace = true
+serde_json.workspace = true

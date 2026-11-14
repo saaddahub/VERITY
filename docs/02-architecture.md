@@ -61,13 +61,13 @@ Dependency direction: `sys ← core ← {telemetry, actions, store} ← {doctor,
 
 ## IPC
 
-- Transport: named pipe `\\.\pipe\verity-v1`, message mode, each message a 4-byte little-endian length followed by UTF-8 JSON.
+- Transport: named pipe `\\.\pipe\verity-v1`, byte mode, each message a 4-byte little-endian length followed by UTF-8 JSON.
 - Protocol: JSON-RPC 2.0, bidirectional. The client calls the service; the service can also call the connected agent for user-session work.
 - Versioning: first call is `hello { protocol: 1, role: "ui" | "cli" }`. Mismatch returns a clear error.
 
 ### Pipe security
 
-- DACL: SYSTEM and Administrators full control; the Interactive group read/write. No network access (`PIPE_REJECT_REMOTE_CLIENTS`).
+- DACL: SYSTEM and Administrators full control; the pipe owner full control; the Interactive group read plus `FILE_WRITE_DATA` only (not generic write, which would allow creating pipe instances). Clients open with `GENERIC_READ | FILE_WRITE_DATA`; see `docs/notes/decisions.md`. No network access (`PIPE_REJECT_REMOTE_CLIENTS`).
 - The service treats every client as untrusted. See "Security rules for the service" in `CLAUDE.md`.
 - Persistent-scope HKLM actions require the request to come from an elevated client. Check the client token via `ImpersonateNamedPipeClient` and test for Administrators membership, then revert impersonation immediately.
 

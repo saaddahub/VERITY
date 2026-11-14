@@ -1,0 +1,16 @@
+[package]
+name = "verity-service"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+verity-core.workspace = true
+verity-sys.workspace = true
+verity-ipc.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+windows-service.workspace = true

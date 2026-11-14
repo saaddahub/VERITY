@@ -1,0 +1,9 @@
+[package]
+name = "verity-core"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
