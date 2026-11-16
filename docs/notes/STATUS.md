@@ -20,16 +20,17 @@ Verified on the dev laptop (Windows 11 25H2 build 26200, i5-11400H, RTX 3050 + I
 - `apps/verity-ui` does not exist until M6
 
 **Known issues / open questions**
-- Not recorded whether the service (session 0) sees the displays; the CLI uses
-  its own view either way and prints a note when the two differ.
+- Verified 2026-11-16: the service (session 0) sees 0 displays on the dev
+  laptop, so the CLI and app read displays from the user session, as designed.
 - The hybrid-CPU path (performance/efficiency split) is unit-tested only; the dev
   laptop's CPU is not hybrid.
 - "Pipe rejects remote clients" rests on `PIPE_REJECT_REMOTE_CLIENTS` being set;
   there is no test from a second machine.
-- Log rotation is configured, not observed across a day boundary.
+- Log rotation observed 2026-11-16: `service.2026-11-16.log` was created beside
+  `service.2026-11-14.log`. Deleting files past the 7-file limit is not yet observed.
 - `%ProgramData%\Verity` is left behind after uninstall (by design until M9 asks).
 
-## M1 — Telemetry v1: automated criteria pass; manual check open
+## M1 — Telemetry v1: complete (2026-11-16)
 
 Verified on the dev laptop by `apps/verity-cli/tests/record_e2e.rs` (elevated).
 
@@ -47,8 +48,11 @@ Verified on the dev laptop by `apps/verity-cli/tests/record_e2e.rs` (elevated).
 - `tools/framegen`, `tools/stressors`, probes `sysinfo` and `counters`
 
 **Open**
-- Manual criterion: record 10 minutes of a real game and compare with another
-  frame-rate tool. Not done.
+- Manual criterion passed 2026-11-16: Forza Horizon 5, session 7, 8.5 min
+  (the game was closed before the 10 minutes; the capture ended with it, no gaps).
+  Verity: 68.0 FPS average, 1% low 40.1, 76 hitch groups, worst 212 ms, rendered on
+  the RTX 3050, overhead 0.16%. The owner's in-game counter showed about 68 average
+  with lows around 40.
 - Overhead on short captures runs close to the budget (0.24% on a 14 s run):
   start-up cost is spread over little time.
 - Only `--mode light` exists; standard and deep need kernel tracing (M5).
