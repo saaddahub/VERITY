@@ -1,6 +1,7 @@
 //! All `unsafe` code and raw Win32 calls, behind safe wrappers.
 //! Nothing above this crate contains `unsafe`.
 
+pub mod elevate;
 pub mod paths;
 pub mod pdh;
 pub mod pipe;

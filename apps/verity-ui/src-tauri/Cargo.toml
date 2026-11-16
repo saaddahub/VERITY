@@ -1,0 +1,21 @@
+[package]
+name = "verity-ui"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "verity-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+verity-core.workspace = true
+verity-sys.workspace = true
+verity-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tauri = { version = "2", features = [] }

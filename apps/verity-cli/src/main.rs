@@ -11,7 +11,7 @@ use verity_core::{CoreKind, SystemInfo};
 use verity_ipc::{Client, Role, PIPE_NAME};
 
 const USAGE: &str = "usage:
-  verity service install [--exe <path to verity-service.exe>]   (elevated)
+  verity service install [--exe <path to verity-service.exe> | --start]   (elevated)
   verity service start | stop | uninstall                       (elevated)
   verity system info [--json]
   verity record --pid <pid> | --exe <name> [--duration <seconds>]
@@ -24,6 +24,7 @@ fn main() -> ExitCode {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = match args.as_slice() {
         ["service", "install"] => service::install(None),
+        ["service", "install", "--start"] => service::install(None).and_then(|()| service::start()),
         ["service", "install", "--exe", path] => service::install(Some(path.into())),
         ["service", "start"] => service::start(),
         ["service", "stop"] => service::stop(),
