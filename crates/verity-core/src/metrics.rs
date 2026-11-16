@@ -40,6 +40,30 @@ mod nan_as_null {
     }
 }
 
+/// Header of the frame CSV export, matching [`write_csv`] column for column.
+pub const CSV_HEADER: &str = "qpc,frame_time_ms,cpu_busy_ms,gpu_busy_ms,displayed_time_ms,\
+display_latency_ms,present_mode,flags";
+
+/// Rust prints the shortest text that reads back to the same f32, so the file
+/// round-trips exactly; an unmeasured value is `NaN`.
+pub fn write_csv(out: &mut impl std::io::Write, frames: &[Frame]) -> std::io::Result<()> {
+    for f in frames {
+        writeln!(
+            out,
+            "{},{},{},{},{},{},{},{}",
+            f.qpc,
+            f.frame_time_ms,
+            f.cpu_busy_ms,
+            f.gpu_busy_ms,
+            f.displayed_time_ms,
+            f.display_latency_ms,
+            f.present_mode,
+            f.flags
+        )?;
+    }
+    Ok(())
+}
+
 pub const FLAG_DROPPED: u8 = 1;
 pub const FLAG_TEARING_ALLOWED: u8 = 2;
 

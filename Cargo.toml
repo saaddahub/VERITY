@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "apps/verity-service", "apps/verity-cli", "tools/probes", "tools/stressors", "tools/framegen"]
+members = ["crates/*", "apps/verity-service", "apps/verity-cli", "tools/probes", "tools/stressors", "tools/framegen", "apps/verity-ui/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
