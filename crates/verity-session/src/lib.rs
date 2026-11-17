@@ -3,6 +3,7 @@
 
 pub mod library;
 pub mod machine;
+pub mod profile;
 mod stdfs;
 
 pub use stdfs::{real_roots, StdFs};

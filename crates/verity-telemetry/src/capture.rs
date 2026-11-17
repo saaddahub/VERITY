@@ -41,6 +41,16 @@ pub struct CaptureConfig {
     /// None: until the target exits.
     pub duration: Option<Duration>,
     pub sample_period: Duration,
+    /// Session Mode's handle on a capture: stop it early, see frames arrive.
+    pub control: Option<CaptureControl>,
+}
+
+/// Lets Session Mode stop a capture before the target exits and learn when the
+/// first frames arrive (Arming waits for them).
+#[derive(Clone)]
+pub struct CaptureControl {
+    pub stop: tokio::sync::watch::Receiver<bool>,
+    pub frames: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[derive(Debug, Default)]
@@ -136,6 +146,15 @@ pub async fn run(
     let mut pending_gap: Option<u64> = None;
     let (mut child_cpu, mut dead_children_cpu) = (0u64, 0u64);
     let mut buf = vec![0u8; 16 * 1024];
+    let mut stop_rx = cfg.control.as_ref().map(|c| c.stop.clone());
+    let stop_requested = async |rx: &mut Option<tokio::sync::watch::Receiver<bool>>| match rx {
+        Some(rx) => {
+            if rx.wait_for(|v| *v).await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        }
+        None => std::future::pending::<()>().await,
+    };
 
     loop {
         tokio::select! {
@@ -155,6 +174,9 @@ pub async fn run(
                                     });
                                 }
                                 rows.push((row.swap_chain, row.frame));
+                                if let Some(c) = &cfg.control {
+                                    c.frames.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
                             }
                             Ok(_) => {}
                             Err(_) => cap.unparsed_rows += 1,
@@ -191,6 +213,11 @@ pub async fn run(
                     kill_at = Instant::now() + STOP_GRACE;
                     tokio::spawn(stop_session_owned(cfg.presentmon.clone()));
                 }
+            }
+            _ = stop_requested(&mut stop_rx), if !stopping => {
+                stopping = true;
+                kill_at = Instant::now() + STOP_GRACE;
+                tokio::spawn(stop_session_owned(cfg.presentmon.clone()));
             }
             _ = tokio::time::sleep_until(stop_at), if !stopping => {
                 stopping = true;

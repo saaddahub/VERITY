@@ -1,8 +1,10 @@
 //! SQLite storage. The service owns the database; clients never open it.
 
 pub mod codec;
+pub mod events;
 pub mod games;
 
+pub use events::SessionBounds;
 pub use games::{GameRow, NewGame, SyncResult};
 
 use std::path::Path;

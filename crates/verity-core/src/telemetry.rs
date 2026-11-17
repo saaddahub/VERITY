@@ -142,6 +142,8 @@ pub struct SysEvent {
 
 /// Light-mode budget from docs/03-telemetry.md.
 pub const LIGHT_OVERHEAD_BUDGET_PCT: f64 = 0.3;
+/// Standard-mode budget (kernel trace, event logs and 4 Hz sampler on top).
+pub const STANDARD_OVERHEAD_BUDGET_PCT: f64 = 1.0;
 
 #[cfg(test)]
 mod tests {

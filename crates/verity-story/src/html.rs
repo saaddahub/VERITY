@@ -68,6 +68,7 @@ pub fn kind_label(kind: &str) -> &'static str {
 const W: f64 = 960.0;
 const PLOT_H: f64 = 160.0;
 const LANE_H: f64 = 18.0;
+const MAX_LANE_EVENTS: usize = 1500;
 
 pub fn render(r: &Report) -> String {
     let s = r.story;
@@ -136,7 +137,14 @@ pub fn render(r: &Report) -> String {
             ly + 12.0,
             esc(kind_label(kind))
         );
-        for e in r.events.iter().filter(|e| e.kind == *kind) {
+        // Bounded so a long session still fits one report; the busiest lanes
+        // keep their largest events.
+        let mut lane: Vec<&StoryEvent> = r.events.iter().filter(|e| e.kind == *kind).collect();
+        if lane.len() > MAX_LANE_EVENTS {
+            lane.sort_by(|a, b| b.magnitude.total_cmp(&a.magnitude));
+            lane.truncate(MAX_LANE_EVENTS);
+        }
+        for e in lane {
             let a = x(e.qpc);
             let w = (e.duration_ticks as f64 / span * W).max(1.5);
             let _ = write!(

@@ -8,6 +8,24 @@ use crate::stats::{binomial_upper_tail, holm};
 
 pub use verity_core::telemetry::SysEvent as StoryEvent;
 
+/// Event kinds Frame Story tests as candidate causes (step 2). Other stored
+/// events (session bookkeeping, capture gaps) are not candidates.
+pub const CANDIDATE_KINDS: [&str; 13] = [
+    "dpc",
+    "isr",
+    "hard_fault",
+    "disk_io",
+    "cpu_burst",
+    "proc_start",
+    "throttle",
+    "power_source",
+    "scan",
+    "update",
+    "task",
+    "gpu_other",
+    "foreground",
+];
+
 /// A stretch of time Frame Story must ignore (capture gap, game not in focus).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Interval {

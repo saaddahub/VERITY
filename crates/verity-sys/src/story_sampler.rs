@@ -1,11 +1,14 @@
 //! The 4 Hz sampler behind Frame Story's sampled event kinds
 //! (`cpu_burst`, `gpu_other`, `throttle`, `power_source`).
+//!
+//! Probed 2026-11-17: wildcard counters pick up processes started after the
+//! query opened on the next collection, so no re-expansion is needed.
 
 use verity_core::OsError;
 use windows::core::PCWSTR;
 use windows::Win32::System::Performance::{
     PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
-    PdhGetFormattedCounterValue, PdhOpenQueryW, PdhRemoveCounter, PDH_FMT, PDH_FMT_COUNTERVALUE,
+    PdhGetFormattedCounterValue, PdhOpenQueryW, PDH_FMT, PDH_FMT_COUNTERVALUE,
     PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
 };
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
@@ -77,24 +80,6 @@ impl StorySampler {
             PdhAddEnglishCounterW(self.query, PCWSTR(w.as_ptr()), 0, &mut c)
         })?;
         Ok(c)
-    }
-
-    /// Re-expands the wildcard counters so processes and GPU engine instances
-    /// that appeared since the last refresh are included. Their first value
-    /// arrives one collection later.
-    pub fn refresh_instances(&mut self) {
-        for (slot, path) in [(&mut self.proc_cpu, PROC_CPU), (&mut self.gpu, GPU)] {
-            if let Some(c) = slot.take() {
-                // SAFETY: `c` belongs to this query and is removed once.
-                let _ = unsafe { PdhRemoveCounter(c) };
-            }
-            let w = wide(path);
-            let mut c = PDH_HCOUNTER::default();
-            // SAFETY: as in `add`.
-            if unsafe { PdhAddEnglishCounterW(self.query, PCWSTR(w.as_ptr()), 0, &mut c) } == 0 {
-                *slot = Some(c);
-            }
-        }
     }
 
     fn value(&self, c: PDH_HCOUNTER) -> Option<f64> {
