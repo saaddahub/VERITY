@@ -371,8 +371,10 @@ pub mod read {
     pub fn wstr_at(d: &[u8], off: usize) -> Option<(String, usize)> {
         let rest = d.get(off..)?;
         let units: Vec<u16> = rest
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
             .take_while(|&u| u != 0)
             .collect();
         let used = (units.len() + 1) * 2;

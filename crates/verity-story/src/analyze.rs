@@ -347,22 +347,19 @@ pub fn analyze(inp: &Input) -> Story {
     pairs.sort_unstable();
     pairs.dedup();
 
-    let (front, back) = if n > 0 {
-        (
-            groups
-                .iter()
-                .map(|(g, _)| g.end_qpc - g.start_qpc)
-                .sum::<u64>()
-                / n,
-            groups
-                .iter()
-                .map(|(g, _)| ticks_ms(g.worst_ms as f64))
-                .sum::<u64>()
-                / n,
-        )
-    } else {
-        (0, 0)
-    };
+    // Mean group length and mean worst frame: how far coverage reaches each way.
+    let front = groups
+        .iter()
+        .map(|(g, _)| g.end_qpc - g.start_qpc)
+        .sum::<u64>()
+        .checked_div(n)
+        .unwrap_or(0);
+    let back = groups
+        .iter()
+        .map(|(g, _)| ticks_ms(g.worst_ms as f64))
+        .sum::<u64>()
+        .checked_div(n)
+        .unwrap_or(0);
 
     struct Tested<'a> {
         kind: &'a str,

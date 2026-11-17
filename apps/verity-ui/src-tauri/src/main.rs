@@ -187,9 +187,180 @@ async fn export_csv(app: tauri::AppHandle, id: i64, chunks: u32) -> Res<String> 
     Ok(path.display().to_string())
 }
 
+#[tauri::command]
+async fn session_status(since: u64) -> Res<Value> {
+    call("session.status", json!({ "since": since })).await
+}
+
+#[tauri::command]
+async fn session_enable(on: bool) -> Res<Value> {
+    call("session.enable", json!({ "on": on })).await
+}
+
+#[tauri::command]
+async fn session_stop() -> Res<Value> {
+    call("session.stop", json!({})).await
+}
+
+#[tauri::command]
+async fn session_panic() -> Res<Value> {
+    call("session.panic", json!({})).await
+}
+
+#[tauri::command]
+async fn games_list() -> Res<Value> {
+    call("games.list", json!({})).await
+}
+
+#[tauri::command]
+async fn games_scan() -> Res<Value> {
+    call("games.scan", json!({})).await
+}
+
+#[tauri::command]
+async fn games_add(exe_path: String) -> Res<Value> {
+    let path = exe_path.trim().trim_matches('"').to_string();
+    call("games.add", json!({ "exe_path": path })).await
+}
+
+#[tauri::command]
+async fn games_remove(id: i64) -> Res<Value> {
+    call("games.remove", json!({ "id": id })).await
+}
+
+#[tauri::command]
+async fn games_answer(exe: String, answer: String) -> Res<Value> {
+    call("games.answer", json!({ "exe": exe, "answer": answer })).await
+}
+
+#[tauri::command]
+async fn story_get(id: i64) -> Res<Value> {
+    call("story.get", json!({ "id": id })).await
+}
+
+/// Writes the Frame Story report to the Downloads folder and returns the path.
+#[tauri::command]
+async fn story_export(app: tauri::AppHandle, id: i64) -> Res<String> {
+    let v = call("story.export", json!({ "id": id })).await?;
+    let html = v["html"].as_str().ok_or("no report returned")?;
+    let dir = app.path().download_dir().map_err(|e| e.to_string())?;
+    let path = dir.join(format!("verity-frame-story-{id}.html"));
+    std::fs::write(&path, html).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+/// Agent duties (docs/06-session-mode.md): report the foreground process to the
+/// service, so Session Mode knows when the game is in front. Pid only, never a
+/// window title.
+fn report_foreground() {
+    std::thread::spawn(|| {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(_) => return,
+        };
+        let mut last = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let now = verity_sys::agent::foreground_pid();
+            if now.is_some() && now != last {
+                if let Some(pid) = now {
+                    if rt
+                        .block_on(call("agent.foreground", json!({ "pid": pid })))
+                        .is_ok()
+                    {
+                        last = now;
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Panic from anywhere (hotkey or tray): revert the session and turn Session Mode off.
+fn panic_now() {
+    std::thread::spawn(|| {
+        if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            let _ = rt.block_on(call("session.panic", json!({})));
+        }
+    });
+}
+
+fn tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+    let open = MenuItem::with_id(app, "open", "Open Verity", true, None::<&str>)?;
+    let panic = MenuItem::with_id(
+        app,
+        "panic",
+        "Undo session changes now (Ctrl+Alt+Shift+V)",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Verity", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &panic, &quit])?;
+    let mut builder = TrayIconBuilder::with_id("verity")
+        .tooltip("Verity")
+        .menu(&menu)
+        .on_menu_event(|app, e| match e.id.as_ref() {
+            "open" => show(app),
+            "panic" => panic_now(),
+            "quit" => app.exit(0),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
+fn show(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
 fn main() {
+    // The hotkey lives as long as the app; dropping it unregisters.
+    let hotkey =
+        verity_sys::agent::Hotkey::register(verity_sys::agent::PANIC_VK, Box::new(panic_now));
+    if let Err(e) = &hotkey {
+        eprintln!("panic hotkey unavailable: {e}");
+    }
+    report_foreground();
     tauri::Builder::default()
+        .setup(|app| {
+            tray(app)?;
+            Ok(())
+        })
+        // Closing the window keeps Verity in the tray, so the panic hotkey and
+        // tray command still work. Quit from the tray menu.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            session_status,
+            session_enable,
+            session_stop,
+            session_panic,
+            games_list,
+            games_scan,
+            games_add,
+            games_remove,
+            games_answer,
+            story_get,
+            story_export,
             service_status,
             service_setup,
             system_info,

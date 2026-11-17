@@ -31,4 +31,5 @@ fn main() {
         );
     }
     let _ = child.kill();
+    let _ = child.wait();
 }

@@ -130,14 +130,12 @@ impl StorySampler {
         })?;
         let mut ps = SYSTEM_POWER_STATUS::default();
         // SAFETY: `ps` is an out-parameter.
-        let on_ac =
-            unsafe { GetSystemPowerStatus(&mut ps) }
-                .ok()
-                .and_then(|_| match ps.ACLineStatus {
-                    0 => Some(false),
-                    1 => Some(true),
-                    _ => None,
-                });
+        let read = unsafe { GetSystemPowerStatus(&mut ps) }.is_ok();
+        let on_ac = match (read, ps.ACLineStatus) {
+            (true, 0) => Some(false),
+            (true, 1) => Some(true),
+            _ => None,
+        };
         Ok(StorySample {
             qpc: qpc(),
             proc_cpu: self.proc_cpu.map(|c| self.array(c)).unwrap_or_default(),

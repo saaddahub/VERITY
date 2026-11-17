@@ -211,7 +211,7 @@ pub fn start(
         .setting(SETTING_ENABLED)
         .ok()
         .flatten()
-        .map_or(true, |v| v != "0");
+        .is_none_or(|v| v != "0");
     let runner = Runner {
         store,
         capturing,

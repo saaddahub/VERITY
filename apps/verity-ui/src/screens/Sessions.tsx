@@ -1,11 +1,29 @@
-import { useEffect, useState } from "react";
-import { api, type Session, type SystemInfo, type Trace as TraceData } from "../api.ts";
+import { useEffect, useMemo, useState } from "react";
+import { api, type Session, type StoryData, type SystemInfo, type Trace as TraceData } from "../api.ts";
 import type { Data, Page } from "../App.tsx";
 import { appName, checks, verdict } from "../checks.ts";
 import { Icon, Readings, Sheet, when } from "../ui.tsx";
 import { ServiceGate } from "./ServiceGate.tsx";
 import { Headline } from "./Headline.tsx";
-import { Trace } from "./Trace.tsx";
+import { Trace, type Lane } from "./Trace.tsx";
+import { StoryPanel, kindLabel } from "./Story.tsx";
+
+/** Lanes for the trace: reported causes first, then the busiest other kinds. */
+function lanesFrom(story: StoryData | null): Lane[] {
+  if (!story) return [];
+  const causeKinds = new Set(story.story.causes.map((c) => c.kind));
+  const byKind = new Map<string, Lane["events"]>();
+  for (const e of story.events) {
+    if (!kindLabel[e.kind]) continue;
+    const list = byKind.get(e.kind) ?? [];
+    list.push({ qpc: e.qpc, ticks: e.duration_ticks });
+    byKind.set(e.kind, list);
+  }
+  return [...byKind.entries()]
+    .sort((a, b) => Number(causeKinds.has(b[0])) - Number(causeKinds.has(a[0])) || b[1].length - a[1].length)
+    .slice(0, 6)
+    .map(([kind, events]) => ({ label: kindLabel[kind], cause: causeKinds.has(kind), events }));
+}
 
 export function Sessions({ data, selected, go }: { data: Data; selected?: number; go: (p: Page) => void }) {
   if (data.service?.state !== "running") return <ServiceGate data={data} />;
@@ -62,11 +80,15 @@ function Detail({ session, info }: { session: Session; info: SystemInfo | null }
   const [traceError, setTraceError] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [story, setStory] = useState<StoryData | null>(null);
+  const [storyError, setStoryError] = useState<string | null>(null);
+  const lanes = useMemo(() => lanesFrom(story), [story]);
   const s = session.summary;
   const st = s.stats;
 
   useEffect(() => {
     api.trace(session.id, session.frame_chunks).then(setTrace, (e) => setTraceError(String(e)));
+    api.story(session.id).then(setStory, (e) => setStoryError(String(e)));
   }, [session.id, session.frame_chunks]);
 
   const exportCsv = async () => {
@@ -118,6 +140,8 @@ function Detail({ session, info }: { session: Session; info: SystemInfo | null }
         foot="Checked against this recording"
       />
 
+      {st.frame_count > 0 && <StoryPanel data={story} error={storyError} />}
+
       <section className="panel trace-panel" aria-labelledby="th">
         <div className="trace-head">
           <h2 id="th">Frame time</h2>
@@ -131,7 +155,7 @@ function Detail({ session, info }: { session: Session; info: SystemInfo | null }
           </div>
         </div>
         {trace ? (
-          <Trace data={trace} hitches={st.hitch_groups} />
+          <Trace data={trace} hitches={st.hitch_groups} lanes={lanes} freq={story?.qpc_freq} />
         ) : traceError ? (
           <p className="error-text">Couldn't load the frames: {traceError}</p>
         ) : (

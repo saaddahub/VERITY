@@ -2,12 +2,22 @@ import { useEffect, useRef } from "react";
 import { animate } from "animejs";
 import type { HitchGroup, Trace as TraceData } from "../api.ts";
 
+/** One row of system events under the trace, sharing its time axis. */
+export interface Lane {
+  label: string;
+  /** Drawn in the attention colour: this kind is a reported cause. */
+  cause: boolean;
+  events: { qpc: number; ticks: number }[];
+}
+
+const LANE_H = 18;
+
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /** Frame time over the recording: the line is min/max per pixel column so a
  *  3-hour session draws as fast as a 30-second one; stutters are amber ticks
  *  on a rail beneath. */
-export function Trace({ data, hitches }: { data: TraceData; hitches: HitchGroup[] }) {
+export function Trace({ data, hitches, lanes = [], freq = 10_000_000 }: { data: TraceData; hitches: HitchGroup[]; lanes?: Lane[]; freq?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -38,9 +48,10 @@ export function Trace({ data, hitches }: { data: TraceData; hitches: HitchGroup[
       const sorted = data.ms.filter((m): m is number => m !== null).sort((a, b) => a - b);
       const worst = sorted[sorted.length - 1] ?? 1;
       const top = Math.max(40, worst * 1.12);
-      const left = 44;
+      const left = lanes.length ? 168 : 44;
       const rail = 22;
-      const plotH = h - rail - 18;
+      const lanesH = lanes.length ? lanes.length * LANE_H + 10 : 0;
+      const plotH = h - rail - 18 - lanesH;
       const plotW = w - left - 8;
       const y = (ms: number) => 8 + plotH - (ms / top) * plotH;
       const x = (ms: number) => left + (ms / total) * plotW;
@@ -56,7 +67,7 @@ export function Trace({ data, hitches }: { data: TraceData; hitches: HitchGroup[
         g.lineTo(w - 8, Math.round(y(ms)) + 0.5);
         g.stroke();
         g.fillStyle = css("--ink-3");
-        g.fillText(`${ms.toFixed(0)}`, 6, y(ms));
+        g.fillText(`${ms.toFixed(0)}`, left - 38, y(ms));
       }
 
       // the line, min/max per pixel column, revealed left to right
@@ -89,7 +100,7 @@ export function Trace({ data, hitches }: { data: TraceData; hitches: HitchGroup[
       g.stroke();
 
       // stutter rail
-      const railY = h - rail + 4;
+      const railY = h - rail + 4 - lanesH;
       g.fillStyle = css("--rule-soft");
       g.fillRect(left, railY + 6, plotW, 1);
       const qpc0 = data.qpc[0];
@@ -103,6 +114,12 @@ export function Trace({ data, hitches }: { data: TraceData; hitches: HitchGroup[
         }
         return a;
       };
+      if (lanes.length) {
+        g.font = `500 12px ${css("--text")}`;
+        g.fillStyle = css("--ink-2");
+        g.textBaseline = "middle";
+        g.fillText("Stutters", 4, railY + 6);
+      }
       g.fillStyle = css("--look");
       for (const hg of hitches) {
         if (hg.start_qpc < qpc0) continue;
@@ -110,6 +127,32 @@ export function Trace({ data, hitches }: { data: TraceData; hitches: HitchGroup[
         if (px > left + cols) continue;
         g.fillRect(Math.round(px) - 1, railY, 3, 13);
       }
+
+      // event lanes: same time axis, so an event sits under the frame it overlapped
+      // Position of a QPC time: the next frame's place, stepped back by the gap to it.
+      const qpcX = (q: number) => {
+        const i = findIndex(q);
+        return x(Math.max(0, t[i] - (Math.max(0, data.qpc[i] - q) / freq) * 1000));
+      };
+      lanes.forEach((lane, i) => {
+        const ly = h - lanesH + 4 + i * LANE_H;
+        g.fillStyle = css("--rule-soft");
+        g.fillRect(left, ly + LANE_H / 2, plotW, 1);
+        g.font = `500 12px ${css("--text")}`;
+        g.fillStyle = lane.cause ? css("--ink") : css("--ink-3");
+        g.textBaseline = "middle";
+        let label = lane.label;
+        while (g.measureText(label).width > left - 16 && label.length > 4) label = label.slice(0, -2) + "…";
+        g.fillText(label, 4, ly + LANE_H / 2);
+        g.fillStyle = lane.cause ? css("--fix") : css("--ink-3");
+        for (const e of lane.events) {
+          if (e.qpc < qpc0 || e.qpc > data.qpc[n - 1]) continue;
+          const a = qpcX(e.qpc);
+          if (a > left + cols) continue;
+          const b = e.ticks > 0 ? qpcX(e.qpc + e.ticks) : a;
+          g.fillRect(Math.round(a), ly + 4, Math.max(2, Math.round(b - a)), LANE_H - 8);
+        }
+      });
     };
 
     draw();
@@ -132,7 +175,19 @@ export function Trace({ data, hitches }: { data: TraceData; hitches: HitchGroup[
       ro.disconnect();
       anim?.pause();
     };
-  }, [data, hitches]);
+  }, [data, hitches, lanes, freq]);
 
-  return <canvas ref={canvas} className="trace-canvas" role="img" aria-label="Frame time over the recording, with stutters marked beneath" />;
+  return (
+    <canvas
+      ref={canvas}
+      className="trace-canvas"
+      style={lanes.length ? { height: 260 + lanes.length * LANE_H + 10 } : undefined}
+      role="img"
+      aria-label={
+        lanes.length
+          ? `Frame time over the recording, stutters marked beneath, then ${lanes.length} rows of system events: ${lanes.map((l) => l.label).join(", ")}`
+          : "Frame time over the recording, with stutters marked beneath"
+      }
+    />
+  );
 }

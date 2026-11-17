@@ -2,7 +2,7 @@
 // from real test recordings of the framegen tool on the development laptop.
 // Never used inside the app.
 
-import type { Session, SystemInfo, Trace } from "./api.ts";
+import type { Game, Session, SessionStatus, StoryData, SystemInfo, Trace } from "./api.ts";
 
 const FREQ = 10_000_000;
 
@@ -74,6 +74,54 @@ const system: SystemInfo = {
   power_scheme: { guid: "6fecc5ae-f350-48a5-b669-b472cb895ccf", name: "Turbo" },
 };
 
+// The three games the library scan found on the development laptop, plus framegen.
+const games: Game[] = [
+  { id: 3, name: "BOMBANANA! Demo", exe_path: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\BOMBANANA! Demo\\BOMBANANA.exe", source: "steam", launcher_id: "4747510" },
+  { id: 4, name: "framegen", exe_path: "C:\\dev\\verity\\target\\debug\\framegen.exe", source: "manual", launcher_id: null },
+  { id: 1, name: "Forza Horizon 5", exe_path: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ForzaHorizon5\\ForzaHorizon5.exe", source: "steam", launcher_id: "1551360" },
+  { id: 2, name: "RV There Yet?", exe_path: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Ride\\Ride\\Binaries\\Win64\\Ride-Win64-Shipping.exe", source: "steam", launcher_id: "3949040" },
+];
+
+let enabled = true;
+const status = (): SessionStatus => ({
+  status: { state: "idle", enabled },
+  notices: [],
+  capabilities: [],
+});
+
+/** Session 4's planted test: each stutter fired as a stress tool started. */
+function storyFor(id: number): StoryData {
+  const groups = sessions.find((s) => s.id === id)?.summary.stats.hitch_groups ?? [];
+  const planted = id === 4;
+  const events = planted
+    ? groups.flatMap((g, i) => [
+        { qpc: g.start_qpc - 400_000, duration_ticks: 0, kind: "proc_start", subject: "verity-stress.exe", magnitude: 1 },
+        { qpc: g.start_qpc - 300_000, duration_ticks: 2_500_000, kind: "cpu_burst", subject: "verity-stress.exe", magnitude: 3.8 + (i % 3) * 0.1 },
+      ])
+    : [];
+  return {
+    session_id: id,
+    events,
+    events_truncated: false,
+    qpc_freq: FREQ,
+    story: {
+      hitch_groups: groups.length,
+      hitch_rate_per_min: planted ? 40.6 : 0,
+      causes: planted
+        ? [
+            { kind: "proc_start", subject: "verity-stress.exe", label: "likely", k: groups.length, n: groups.length, lift: 4.6, p: 1e-12, excess_share: 1, remedy: { type: "throttle", id: "background.process" } },
+            { kind: "cpu_burst", subject: "verity-stress.exe", label: "likely", k: groups.length, n: groups.length, lift: 3.4, p: 1e-9, excess_share: 1, remedy: { type: "throttle", id: "background.process" } },
+          ]
+        : [],
+      unexplained: { in_game_cpu: 0, in_game_gpu: 0, unknown: 0 },
+      capture_mode: "standard",
+      caveats: planted ? ["cpu_burst and gpu_other timing is sampled at 4 Hz"] : [],
+      groups: groups.map((g) => ({ start_qpc: g.start_qpc, end_qpc: g.end_qpc, worst_ms: g.worst_ms, excess_ms: g.worst_ms - 16.7, class: planted ? "cause" : "unknown" })),
+      pairs_tested: planted ? 6 : 0,
+    },
+  };
+}
+
 export async function preview<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 120));
   const id = Number(args?.id);
@@ -88,7 +136,15 @@ export async function preview<T>(cmd: string, args?: Record<string, unknown>): P
       { pid: 9804, name: "chrome.exe", gpu_pct: 4.2 },
     ],
     export_csv: `C:\\Users\\you\\Downloads\\verity-session-${id}.csv`,
+    games_list: games,
+    games_scan: games,
+    story_export: `C:\\Users\\you\\Downloads\\verity-frame-story-${id}.html`,
   };
-  if (cmd === "record" || cmd === "service_setup") throw new Error("Not available in the design preview.");
+  if (cmd === "story_get") return storyFor(id) as T;
+  if (cmd === "session_enable") enabled = Boolean(args?.on);
+  if (cmd === "session_panic") enabled = false;
+  if (["session_status", "session_enable", "session_stop", "session_panic"].includes(cmd)) return status() as T;
+  if (["record", "service_setup", "games_add", "games_remove", "games_answer"].includes(cmd))
+    throw new Error("Not available in the design preview.");
   return answers[cmd] as T;
 }
