@@ -2,6 +2,7 @@
 //! Nothing above this crate contains `unsafe`.
 
 pub mod elevate;
+pub mod games;
 pub mod paths;
 pub mod pdh;
 pub mod pipe;

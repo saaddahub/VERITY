@@ -65,7 +65,7 @@ fn reg_dword(subkey: &str, value: &str) -> Result<u32, OsError> {
     Ok(data)
 }
 
-fn reg_string(subkey: &str, value: &str) -> Result<String, OsError> {
+pub(crate) fn reg_string(subkey: &str, value: &str) -> Result<String, OsError> {
     let (k, v) = (wide(subkey), wide(value));
     let mut buf = vec![0u16; 128];
     loop {

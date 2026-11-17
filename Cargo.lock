@@ -4027,6 +4027,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "verity-core",
+ "verity-session",
  "verity-sys",
 ]
 
@@ -4052,12 +4053,20 @@ dependencies = [
 [[package]]
 name = "verity-session"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tracing",
+ "verity-core",
+ "verity-sys",
+]
 
 [[package]]
 name = "verity-store"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "verity-core",
