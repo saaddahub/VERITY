@@ -4076,6 +4076,10 @@ dependencies = [
 [[package]]
 name = "verity-story"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "verity-core",
+]
 
 [[package]]
 name = "verity-stressors"
