@@ -2,6 +2,86 @@
 
 Changes from the spec and why. Newest first.
 
+## 2026-11-17 — M4 Session Mode and M5 Frame Story
+
+All probes ran on the dev laptop: Windows 11 25H2 build 26200, i5-11400H,
+RTX 3050 + Intel UHD.
+
+**Raw ETW in `verity-sys`, not ferrisetw.** ferrisetw always converts event
+times to system time (no `PROCESS_TRACE_MODE_RAW_TIMESTAMP`), but a DPC's
+duration is its event time minus its `InitialTime` field, which is a raw QPC
+value, and frames from PresentMon are QPC too. Decoding by TDH per event is
+also too slow at DPC rates (over 10 000 a second in the probe). Verity decodes
+the few kernel layouts it uses by hand, bounds-checked, against payloads
+captured by `tools/probes/src/bin/etw.rs`. ferrisetw is not a dependency.
+
+**Process starts come from Microsoft-Windows-Kernel-Process, not the kernel
+`PROCESS` flag.** The kernel class carries a 15-character image name; the
+provider carries the full NT path and the creation time, which is the
+process identity with the pid. ProcessStart is version 4 here: pid, sequence
+number, creation time, ..., a mandatory-label SID of variable length, then the
+image name; the decoder finds the name by its `\` prefix so older versions
+(creation time at offset 4) also decode.
+
+**`VerityKernel` runs only during Standard captures.** Nothing needs it between
+sessions now that process starts come from the provider. In-place flag updates
+were verified anyway (`update_flags -> Ok`, DPC events appeared only after it).
+
+**DPC/ISR attribution uses the image rundown, not `EnumDeviceDrivers`.** The
+rundown at enable time delivered every kernel module (pid 0, base, size, path).
+Header process ids are -1 for PerfInfo, DiskIo and PageFault events, so disk
+I/O and hard faults are attributed through their thread id and the `THREAD`
+rundown.
+
+**Per-process CPU comes from the `Process V2` counter set** (instances
+`name:pid`). Wildcard counters pick up processes started after the query
+opened on the next collection (probe `story_sampler`), so no re-expansion.
+
+**Arming waits up to 120 s for the first frame**, then gives up. The spec said
+10 s alive with frames, else Idle; games often compile shaders for longer than
+10 s before their first frame. A process that exits within 10 s still never
+applies a profile (tested).
+
+**A game's session ends 15 s after it exits**, because a matching process in
+that window continues the same session (the spec's relaunch rule). Relaunch
+segments are joined with a capture gap between them.
+
+**Session actions are a trait with a no-op implementation until M3 lands.**
+`apply`, `on_new_process` (the background watcher), `pause`/`resume` (focus
+lost for 60 s) and `revert_all` are called at the spec's moments. The M4
+criteria about throttling background processes and reverting them wait for M3.
+
+**The library does not read Steam's launch config** (binary `appinfo.vdf`). The
+main exe is the largest one that is not an installer, crash handler, helper or
+redistributable; an Unreal `*-Shipping.exe` wins over its bootstrapper. Steam
+tool app ids (Steamworks redistributables, runtimes, SteamVR, Proton) are
+skipped, and an app must have `StateFlags` bit 4 (fully installed). Verified on
+three Steam games. Epic, GOG and Xbox scans are unit-tested only: none are
+installed on the dev laptop.
+
+**Notices go through the app.** The service runs in session 0 and cannot show
+anything; the app polls `session.status` every 2 s and shows session start/end
+notices and the "Is X a game?" question. Only processes seen starting after the
+service started can be asked about, because their path is known without
+opening a handle.
+
+**Panic hotkey and tray live in the app** (`RegisterHotKey` in
+`verity-sys::agent`, tray from tauri's `tray-icon` feature). Closing the window
+hides it to the tray so both keep working. The app also reports the foreground
+pid to the service (`agent.foreground`), never a window title.
+
+**The Task Scheduler log is off on the dev laptop.** Verity reports "scheduled
+task visibility unavailable" as a caveat and does not enable it. Windows Update
+ids 44/41 (download) and 43/19/20 (install) are from documentation; only 26, 41
+and 31 were seen on this machine.
+
+**Cross-session pooling and "verified fixed"** (Frame Story steps 6 and the end
+of 7) are M8 items in the roadmap and are not built.
+
+**Dependencies:** none added to the product crates. tauri gains its
+`tray-icon` feature. The test tool `stressors` gains the `windows` crate for
+`stress hitch`, which signals framegen's named event.
+
 ## 2026-11-14 — M0
 
 **Pipe uses byte mode, not message mode** (`02-architecture.md` said message mode).

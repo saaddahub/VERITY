@@ -9,7 +9,8 @@ const USAGE: &str = "usage:
   stress cpu   --threads <n> --ms <x>
   stress disk  --path <file> --mb <n>
   stress mem   --gb <n> --hold-s <x>
-  stress decoy --period-s <n> [--count <n>]";
+  stress decoy --period-s <n> [--count <n>]
+  stress hitch --event <name> --threads <n> --ms <x>   (signal framegen, then load the CPU)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,6 +24,11 @@ fn main() -> ExitCode {
         "mem" => opt(rest, "--gb").and_then(|g| opt(rest, "--hold-s").map(|s| mem(g, s))),
         "decoy" => opt(rest, "--period-s").and_then(|p| decoy(p, opt(rest, "--count").ok())),
         "decoy-child" => Ok(()), // starts and exits doing nothing
+        "hitch" => opt::<String>(rest, "--event").and_then(|e| {
+            signal(&e)?;
+            cpu(opt(rest, "--threads")?, opt(rest, "--ms")?);
+            Ok(())
+        }),
         _ => Err(USAGE.to_string()),
     };
     match result {
@@ -107,4 +113,29 @@ fn decoy(period_s: u64, count: Option<u64>) -> Result<(), String> {
         std::thread::sleep(Duration::from_secs(period_s));
     }
     Ok(())
+}
+
+/// Signals framegen's `--hitch-on-event` event, planting a hitch at the moment
+/// this process starts: the planted cause of the Frame Story end-to-end test.
+fn signal(name: &str) -> Result<(), String> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenEventW, SetEvent, EVENT_MODIFY_STATE};
+    let full: Vec<u16> = format!(r"Local\{name}")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: `full` is NUL-terminated; the handle is closed below.
+    let h = unsafe {
+        OpenEventW(
+            EVENT_MODIFY_STATE,
+            false,
+            windows::core::PCWSTR(full.as_ptr()),
+        )
+    }
+    .map_err(|e| format!("open event {name}: {e}"))?;
+    // SAFETY: `h` was just opened with EVENT_MODIFY_STATE.
+    let r = unsafe { SetEvent(h) }.map_err(|e| format!("signal {name}: {e}"));
+    // SAFETY: `h` is closed once.
+    let _ = unsafe { CloseHandle(h) };
+    r
 }

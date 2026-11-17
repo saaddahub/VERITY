@@ -369,6 +369,7 @@ impl Runner {
                 pid,
                 create_time,
                 image,
+                qpc: started,
             }) => {
                 self.procs.insert(pid, (create_time, image.clone()));
                 if self.procs.len() > 20_000 {
@@ -381,7 +382,7 @@ impl Runner {
                 }
                 if let Some(acc) = &mut self.acc {
                     acc.events.push(SysEvent {
-                        qpc: qpc(),
+                        qpc: started,
                         duration_ticks: 0,
                         kind: "proc_start".into(),
                         subject: kernel::file_name(&image).to_string(),

@@ -95,8 +95,8 @@ function storyFor(id: number): StoryData {
   const planted = id === 4;
   const events = planted
     ? groups.flatMap((g, i) => [
-        { qpc: g.start_qpc - 400_000, duration_ticks: 0, kind: "proc_start", subject: "verity-stress.exe", magnitude: 1 },
-        { qpc: g.start_qpc - 300_000, duration_ticks: 2_500_000, kind: "cpu_burst", subject: "verity-stress.exe", magnitude: 3.8 + (i % 3) * 0.1 },
+        { qpc: g.start_qpc - 400_000, duration_ticks: 0, kind: "proc_start", subject: "stress.exe", magnitude: 1 },
+        { qpc: g.start_qpc - 300_000, duration_ticks: 2_500_000, kind: "cpu_burst", subject: "stress.exe", magnitude: 3.8 + (i % 3) * 0.1 },
       ])
     : [];
   return {
@@ -109,8 +109,8 @@ function storyFor(id: number): StoryData {
       hitch_rate_per_min: planted ? 40.6 : 0,
       causes: planted
         ? [
-            { kind: "proc_start", subject: "verity-stress.exe", label: "likely", k: groups.length, n: groups.length, lift: 4.6, p: 1e-12, excess_share: 1, remedy: { type: "throttle", id: "background.process" } },
-            { kind: "cpu_burst", subject: "verity-stress.exe", label: "likely", k: groups.length, n: groups.length, lift: 3.4, p: 1e-9, excess_share: 1, remedy: { type: "throttle", id: "background.process" } },
+            { kind: "proc_start", subject: "stress.exe", label: "likely", k: groups.length, n: groups.length, lift: 4.6, p: 1e-12, excess_share: 1, remedy: { type: "throttle", id: "background.process" } },
+            { kind: "cpu_burst", subject: "stress.exe", label: "likely", k: groups.length, n: groups.length, lift: 3.4, p: 1e-9, excess_share: 1, remedy: { type: "throttle", id: "background.process" } },
           ]
         : [],
       unexplained: { in_game_cpu: 0, in_game_gpu: 0, unknown: 0 },

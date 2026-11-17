@@ -66,4 +66,69 @@ Verified on the dev laptop by `apps/verity-cli/tests/record_e2e.rs` (elevated).
 - primary swap chain chosen over the whole capture
 - GPU Engine counter instances fixed when the capture starts
 - database calls run inline on the async runtime
-- framegen has no `--gpu-load` or `--hitch-on-event` yet
+- framegen has no `--gpu-load` yet (`--hitch-on-event` added in M5)
+
+## M4 — Session Mode: built, not complete (2026-11-17)
+
+Branch `m4-m5-session-story`. Verified on the dev laptop by
+`apps/verity-cli/tests/session_e2e.rs` (elevated, `tools/m4m5-admin.ps1`): 5 passed.
+
+**Works**
+- Library scan: Steam (verified: Forza Horizon 5, RV There Yet? via its
+  `Ride-Win64-Shipping.exe`, BOMBANANA! Demo; the Steamworks redistributables
+  app and an incomplete demo are skipped), Epic, GOG, Xbox (unit-tested only),
+  manual add. Probe: `cargo run -p verity-probes --bin games` (50 ms).
+- Game detection from Microsoft-Windows-Kernel-Process (full path, creation
+  time); Idle → Arming → Active → Idle, tested with framegen as a game
+- A process that exits within 10 s never becomes a session (tested, 7 s run)
+- Panic (`session.panic`, Ctrl+Alt+Shift+V in the app, tray menu): answered in
+  1.8 ms, session ended, Session Mode off (tested)
+- `taskkill /f` on the service mid-session, restart: no kernel trace left
+  running, state idle (tested)
+- Suspend and logoff end the session before acknowledging (code path; not run)
+- Relaunch within 15 s continues the session; focus lost for 60 s pauses the
+  throttling hooks; second game recorded and ignored (unit-tested)
+- Profiles (default and per game), `verity session|games|profile`, Games screen,
+  session start/end notices, "Is X a game?" question
+
+**Not done**
+- Session actions: the `SessionActions` trait is a no-op until M3 lands, so
+  the criteria "a background process started mid-session receives the
+  throttling treatment and is restored" and "everything reverted" have nothing
+  to act on yet
+- Library spot-check of five games: only three are installed; no Epic games
+- Manual: suspend/resume mid-session, and 15 minutes of a real game with audio,
+  voice chat and capture software
+
+## M5 — Frame Story: built, not complete (2026-11-17)
+
+**Works**
+- Private system-logger trace `VerityKernel` during Standard captures
+  (DPC, ISR, hard faults, disk I/O, threads, image loads); stopped at service
+  start after a crash (tested). Probe: `cargo run -p verity-probes --bin etw`
+  (elevated).
+- DPC/ISR attributed to driver files from the kernel module rundown
+  (unit-tested on probed payloads)
+- Event-log watchers: Defender scans, Windows Update; Task Scheduler reported
+  as unavailable because its log is off on this machine
+- 4 Hz sampler: background CPU (`Process V2`), other apps on the GPU, CPU
+  performance limit, charger changes
+- Planted cause (20 stressor starts, each planting a hitch): `stress.exe`
+  program start labelled likely, 20 of 20 hitches, lift 4.7; its CPU use also
+  likely, 8 of 20 (4 Hz sampling misses short bursts) (tested)
+- Decoy on a 7 s period with unrelated hitches: not reported (tested)
+- Hitches with no cause classified from the frame: framegen's planted spins
+  read as "inside the game, CPU side" (tested)
+- Standard overhead 0.29% of all cores, budget 1% (tested)
+- `verity story show|export --html`, Frame Story panel and event lanes in the
+  app; the report contains file names only, no user name or folder (tested)
+
+**Not done**
+- Doctor rules D030–D034: they need M2's rule framework (co-developer)
+- Cross-session pooling and "verified fixed": M8 in the roadmap
+- Deep mode (`CSWITCH`, ready-thread contention)
+- Manual: a real session's top cause looks plausible on its timeline
+
+**Known shortcuts** (each marked `shortcut:` in code)
+- Steam launch config not read; largest eligible exe is the main exe
+- no session actions until M3

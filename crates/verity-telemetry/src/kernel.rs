@@ -32,6 +32,9 @@ pub enum ProcEvent {
         create_time: u64,
         /// NT path, e.g. `\Device\HarddiskVolume3\Games\game.exe`.
         image: String,
+        /// When it started, in QPC ticks (the event's own time). Real-time
+        /// events arrive up to a buffer flush late, so the arrival time is not used.
+        qpc: u64,
     },
     Stop {
         pid: u32,
@@ -76,6 +79,7 @@ pub fn decode_process(e: &EtwEvent) -> Option<ProcEvent> {
                 pid,
                 create_time,
                 image,
+                qpc: e.qpc,
             });
         }
         off += 2;
@@ -433,6 +437,7 @@ mod tests {
                 pid: 29532,
                 create_time: 0x01dd_7664_a298_e9e6,
                 image: r"\Device\HarddiskVolume3\Windows\System32\cmd.exe".into(),
+                qpc: 0,
             })
         );
         let stop = hex("5c7300006e61010000000000e6e998a26476dd01fb9da2a26476dd01");
