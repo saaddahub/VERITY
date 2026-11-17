@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "verity-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/verity-ui", "run", "dev"],
+      "port": 1420
+    }
+  ]
+}

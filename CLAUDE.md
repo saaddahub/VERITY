@@ -4,6 +4,7 @@ Verity is a Windows performance tool, for games and everyday use, that **measure
 
 ## Read before coding
 
+0. `MEMORY.md` — read it first: where the project stands, the owner's preferences, and what is next. Update it at the end of every session.
 1. `docs/01-vision.md` — what we are building and why it is different
 2. `docs/02-architecture.md` — processes, crates, IPC, storage
 3. `docs/09-safety.md` — binding rules; violations are bugs
