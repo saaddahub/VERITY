@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use verity_core::OsError;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
-use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDriveStringsW};
+use windows::Win32::Storage::FileSystem::{
+    GetDriveTypeW, GetLogicalDriveStringsW, QueryDosDeviceW,
+};
 use windows::Win32::System::Registry::{
     RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ,
 };
@@ -121,5 +123,28 @@ pub fn fixed_volumes() -> Vec<PathBuf> {
             kind == DRIVE_FIXED
         })
         .map(|root| PathBuf::from(String::from_utf16_lossy(root)))
+        .collect()
+}
+
+/// (NT device, drive) pairs such as (`\Device\HarddiskVolume3`, `C:`), so
+/// kernel image paths can be compared with library paths.
+pub fn dos_devices() -> Vec<(String, String)> {
+    let mut buf = [0u16; 512];
+    // SAFETY: `buf` is a writable buffer; the return is the length written.
+    let n = unsafe { GetLogicalDriveStringsW(Some(&mut buf)) } as usize;
+    if n == 0 || n > buf.len() {
+        return Vec::new();
+    }
+    buf[..n]
+        .split(|&c| c == 0)
+        .filter(|s| s.len() >= 2)
+        .filter_map(|root| {
+            let drive = String::from_utf16_lossy(&root[..2]); // "C:"
+            let w = wide(&drive);
+            let mut target = [0u16; 512];
+            // SAFETY: `w` is NUL-terminated; `target` is a writable buffer.
+            let len = unsafe { QueryDosDeviceW(PCWSTR(w.as_ptr()), Some(&mut target)) };
+            (len > 0).then(|| (from_wide(&target), drive))
+        })
         .collect()
 }

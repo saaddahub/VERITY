@@ -2,12 +2,15 @@
 //! Nothing above this crate contains `unsafe`.
 
 pub mod elevate;
+pub mod etw;
+pub mod evtlog;
 pub mod games;
 pub mod paths;
 pub mod pdh;
 pub mod pipe;
 pub mod process;
 mod security;
+pub mod story_sampler;
 mod system;
 
 pub use system::{displays, WinSystemInfo};

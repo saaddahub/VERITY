@@ -6,17 +6,7 @@ use verity_core::metrics::{detect_hitches, group_hitches, Frame, Thresholds};
 
 use crate::stats::{binomial_upper_tail, holm};
 
-/// One qualifying system event (already past the "counts as an event" bar).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StoryEvent {
-    pub qpc: u64,
-    pub duration_ticks: u64,
-    pub kind: String,
-    /// What to blame: driver file, process image name, task name, ...
-    pub subject: String,
-    /// Kind-specific size (µs of DPC time, MB read, CPU cores, ...).
-    pub magnitude: f64,
-}
+pub use verity_core::telemetry::SysEvent as StoryEvent;
 
 /// A stretch of time Frame Story must ignore (capture gap, game not in focus).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,13 +238,33 @@ pub fn driver_class(file: &str) -> &'static str {
         "mrvl", "bcmwl", "rtux", "killer", "wdiwifi", "vwifi", "netio",
     ]) {
         "network"
-    } else if any(&["nvlddmkm", "amdkmdag", "atikmdag", "igdkmd", "dxgkrnl", "dxgmms", "basicdisplay"]) {
+    } else if any(&[
+        "nvlddmkm",
+        "amdkmdag",
+        "atikmdag",
+        "igdkmd",
+        "dxgkrnl",
+        "dxgmms",
+        "basicdisplay",
+    ]) {
         "gpu"
-    } else if any(&["storport", "stornvme", "storahci", "iastor", "nvme", "disk", "partmgr", "volmgr", "classpnp"]) {
+    } else if any(&[
+        "storport", "stornvme", "storahci", "iastor", "nvme", "disk", "partmgr", "volmgr",
+        "classpnp",
+    ]) {
         "storage"
-    } else if any(&["usbxhci", "usbport", "usbhub", "ucx01000", "usbccgp", "hidusb", "hidclass"]) {
+    } else if any(&[
+        "usbxhci", "usbport", "usbhub", "ucx01000", "usbccgp", "hidusb", "hidclass",
+    ]) {
         "usb"
-    } else if any(&["hdaudbus", "portcls", "ks.sys", "rtkvhd", "intcaudiobus", "audiokse"]) {
+    } else if any(&[
+        "hdaudbus",
+        "portcls",
+        "ks.sys",
+        "rtkvhd",
+        "intcaudiobus",
+        "audiokse",
+    ]) {
         "audio"
     } else if any(&["acpi", "intelppm", "amdppm", "processr"]) {
         "acpi"
@@ -321,7 +331,11 @@ pub fn analyze(inp: &Input) -> Story {
 
     let (front, back) = if n > 0 {
         (
-            groups.iter().map(|(g, _)| g.end_qpc - g.start_qpc).sum::<u64>() / n,
+            groups
+                .iter()
+                .map(|(g, _)| g.end_qpc - g.start_qpc)
+                .sum::<u64>()
+                / n,
             groups
                 .iter()
                 .map(|(g, _)| ticks_ms(g.worst_ms as f64))
@@ -378,7 +392,11 @@ pub fn analyze(inp: &Input) -> Story {
         };
         let k = covered.len() as u64;
         let expected = n as f64 * p0;
-        let lift = if expected > 0.0 { k as f64 / expected } else { 0.0 };
+        let lift = if expected > 0.0 {
+            k as f64 / expected
+        } else {
+            0.0
+        };
         let p = binomial_upper_tail(k, n, p0);
         tested.push(Tested {
             kind,
@@ -462,7 +480,11 @@ pub fn analyze(inp: &Input) -> Story {
     let minutes = elig_ticks as f64 / freq as f64 / 60.0;
     Story {
         hitch_groups: n,
-        hitch_rate_per_min: if minutes > 0.0 { n as f64 / minutes } else { 0.0 },
+        hitch_rate_per_min: if minutes > 0.0 {
+            n as f64 / minutes
+        } else {
+            0.0
+        },
         causes,
         unexplained,
         capture_mode: inp.capture_mode.into(),
@@ -557,7 +579,10 @@ mod tests {
         assert_eq!(s.hitch_groups, 20);
         assert_eq!(s.causes.len(), 1, "{:#?}", s.causes);
         let c = &s.causes[0];
-        assert_eq!((c.kind.as_str(), c.subject.as_str()), ("proc_start", "stress.exe"));
+        assert_eq!(
+            (c.kind.as_str(), c.subject.as_str()),
+            ("proc_start", "stress.exe")
+        );
         assert_eq!(c.label, "likely");
         assert_eq!((c.k, c.n), (20, 20));
         assert!(c.lift >= 3.0, "lift {}", c.lift);
@@ -592,7 +617,13 @@ mod tests {
     fn unexplained_hitches_are_classified_by_the_frame() {
         let f = frames(
             60.0,
-            &[(10.0, 'c'), (20.0, 'c'), (30.0, 'g'), (40.0, 'n'), (50.0, 'g')],
+            &[
+                (10.0, 'c'),
+                (20.0, 'c'),
+                (30.0, 'g'),
+                (40.0, 'n'),
+                (50.0, 'g'),
+            ],
         );
         let s = run(&f, 60.0, &[], &[]);
         assert_eq!(s.hitch_groups, 5);
@@ -682,7 +713,10 @@ mod tests {
     fn interval_helpers() {
         let iv = |a, b| Interval { start: a, end: b };
         assert_eq!(merge(vec![iv(5, 8), iv(1, 3), iv(2, 6)]), [iv(1, 8)]);
-        assert_eq!(eligible(0, 10, &[iv(2, 4), iv(3, 5), iv(9, 20)]), [iv(0, 2), iv(5, 9)]);
+        assert_eq!(
+            eligible(0, 10, &[iv(2, 4), iv(3, 5), iv(9, 20)]),
+            [iv(0, 2), iv(5, 9)]
+        );
         assert_eq!(overlap_len(&[iv(0, 10)], &[iv(2, 4), iv(8, 12)]), 4);
         assert!(inside(3, &[iv(0, 2), iv(3, 5)]));
         assert!(!inside(2, &[iv(0, 2), iv(3, 5)]));
