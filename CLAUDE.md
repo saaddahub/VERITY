@@ -9,7 +9,7 @@ Verity is a Windows performance tool, for games and everyday use, that **measure
 2. `docs/02-architecture.md` — processes, crates, IPC, storage
 3. `docs/09-safety.md` — binding rules; violations are bugs
 4. `docs/11-roadmap.md` — milestones and acceptance criteria
-5. The subsystem spec for the milestone in progress (`03`–`08`, `10`)
+5. The subsystem spec for the milestone in progress (`03`–`08`, `10`, `12`–`15`)
 
 ## Prime directives
 

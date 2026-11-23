@@ -30,6 +30,9 @@ Allowed:
 - Consuming system-wide ETW events (frame presentation, process and image events)
 - Reading performance counters
 - Opening the game process with `PROCESS_SET_INFORMATION` only, solely for `sched.game_priority`, and only when the rule below permits
+- Opening the game process with `PROCESS_SET_LIMITED_INFORMATION` only, solely for a CPU set rule (`12-process-rules.md`), and only when the rule below permits (approved by the owner, 2026-11-23)
+
+Non-game processes may be opened with the rights listed in `12-process-rules.md` (never `PROCESS_VM_*`), only to apply or revert a user rule or a background action (approved by the owner, 2026-11-23).
 
 ### Anti-cheat caution
 
@@ -52,13 +55,14 @@ Verity never, under any setting:
 - Disables security mitigations (speculative-execution mitigations, memory integrity, driver signature enforcement, UAC)
 - Disables Windows Update or its services
 - Edits boot configuration (BCD)
-- Deletes user files, caches, prefetch data, restore points or event logs
+- Deletes anything on its own. On the Storage screen the user may delete files they pick: they go to the Recycle Bin, or, for items the Recycle Bin cannot take, are deleted permanently after a second confirmation. This runs in the app under the user's own account, never in the service (`14-storage.md`; approved by the owner, 2026-11-23). Prefetch data, restore points and event logs are never deleted.
 - Removes or disables Windows components or Store apps
 - Kills processes or stops services outside the session-pause allowlist
 - Changes power settings for battery (DC) operation
 - Sets any process to realtime priority
 - Changes paging file configuration
-- Makes network connections. Verity v1 is fully offline: no update checks, no telemetry upload.
+- Makes network connections. Verity v1 is fully offline: no update checks, no telemetry upload. One exception: during a network test the user starts, ICMP echo to the default gateway only (`13-network.md`; approved by the owner, 2026-11-23).
+- Installs a network filter or any kernel component to shape traffic; network control uses only Windows' own QoS policies and firewall (`13-network.md`)
 
 ## 4. Snake-oil blacklist
 

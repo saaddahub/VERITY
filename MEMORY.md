@@ -54,6 +54,10 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
 
 ## Next (in order)
 
+0. **Build M12 Storage, then M13 Malware Scan** (owner request 2026-11-23;
+   specs `docs/14-storage.md`, `docs/15-malware-scan.md`). M10 Process Rules and
+   M11 Network Control (specs 12 and 13) wait for M3. Safety amendments for all
+   four are approved and written into `docs/09-safety.md`.
 1. **Merge with the co-developer's M2 and M3** (they were pushing them on
    2026-11-17 evening). Then: implement `SessionActions` in
    `apps/verity-service/src/session_mode.rs` with M3's actions (background

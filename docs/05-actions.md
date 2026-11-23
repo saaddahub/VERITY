@@ -110,6 +110,21 @@ Background actions never touch:
 | `timer.resolution` | On current Windows, a timer-resolution request from another process no longer affects the game unless a machine-wide registry switch is set and the system rebooted **(verify)**. Costs battery. Only expose as a Lab experiment with a clear warning. |
 | `sched.game_cpusets` | Restricting the *game* to performance cores. The OS scheduler usually does this well already; can hurt. Lab only. |
 
+### Added with M10 and M11 (approved by the owner, 2026-11-23)
+
+| ID | Spec | Scope |
+|---|---|---|
+| `rule.apply` (CPU set, affinity, priority up to Above normal, efficiency, memory priority, I/O priority) | `12-process-rules.md` | Session, process-targeted, applied per matching process |
+| `sched.restraint` | `12-process-rules.md` | Session, background, off until proven |
+| `net.app_upload_limit`, `net.app_dscp` | `13-network.md` | Persistent or session, machine |
+| `net.app_block` | `13-network.md` | Persistent, machine |
+| `net.do_background_limit` | `13-network.md` | Session, machine |
+| `net.qos_nla` | `13-network.md` | Persistent, machine; may need a reboot (ask first) |
+
+M12 Storage and M13 Malware Scan add no actions: deleting user-picked files
+runs in the app and goes to the Recycle Bin, and starting a Defender scan
+changes no setting.
+
 ### Notify-only (Verity detects and guides, never changes)
 
 Windows Update activity, Defender scans, cloud-sync uploads, vendor performance profiles, BIOS memory profile, discrete-only display mode, driver updates, memory integrity.

@@ -175,6 +175,82 @@ Spec: `08-lab.md`.
 
 ---
 
+## Added milestones (owner request, 2026-11-23)
+
+Four milestones requested by the owner. Their numbers say what they are, not
+when they run. Order, because of what each depends on:
+
+- **M12 Storage** and **M13 Malware Scan** change no system settings, so they need
+  neither M2 nor M3. They are built next, alongside the co-developer's M2/M3,
+  as an owner-approved exception to "one milestone at a time".
+- **M10 Process Rules** and **M11 Network Control** are Actions and need M3's
+  framework and journal. They start once M3 is merged.
+
+Each runs under the safety amendments listed in its spec, once the owner has
+approved them.
+
+## M10 — Process Rules
+
+Spec: `12-process-rules.md`. Process Lasso-style per-app CPU rules.
+
+**Acceptance**
+
+- `topology.get` on the dev laptop names 6 cores / 12 threads, no efficiency classes and one L3 domain; unit tests with fake topologies produce the hybrid and X3D presets
+- A rule (CPU set, priority, efficiency, memory priority) on framegen applies when framegen starts, shows in `processes.live`, and is reverted when the rule is disabled: the integration test compares every value with the snapshot
+- High and Realtime priority are rejected by the rule schema
+- Revert after drift: another tool changes framegen's affinity; disabling the rule leaves it and marks `superseded`
+- Kill the service while a rule is applied; on restart crash recovery restores the prior values
+- A rule on a strict-passive game is shown as paused and opens no handle to the game (handle audit)
+- Restraint: `stress cpu` in the background while framegen runs gets Below normal and Efficiency Mode within 3 s and is restored after; the foreground app and an audio-playing process are never restrained
+- "Prove it" on a framegen CPU set rule returns a Lab verdict
+- Manual: the owner builds a rule for a real app on the Processes screen and undoes it
+
+## M11 — Network Control
+
+Spec: `13-network.md`. Driver-free per-app network view, priorities and limits.
+
+**Acceptance**
+
+- Probe: Microsoft-Windows-Kernel-Network payloads decoded; per-app totals in `net.live` within 5% of the bytes a test tool sent and received
+- `net.app_upload_limit` at 1 Mbit/s on a test uploader holds its measured upload within 10% of the limit; revert removes exactly Verity's policy and leaves a user-made policy alone
+- `net.app_dscp`: a packet capture shows the DSCP value on the app's outbound packets (with `net.qos_nla` applied if the probe shows it is needed)
+- `net.app_block` blocks the app's connections; revert removes only Verity's rule
+- `net.do_background_limit` is applied at Session Mode start and reverted at the end
+- The network test measures gateway latency idle and under load and contacts no other host (firewall log)
+- No address, port or host name appears in the database or logs (grep test)
+- Manual: the owner sets a real app to Low and to Blocked on the Network screen and undoes both
+
+## M12 — Storage
+
+Spec: `14-storage.md`. What fills the drives, safe clean-up, drive health.
+
+**Acceptance**
+
+- Scan of the dev laptop's system drive finishes under 60 s; its total is within 2% of the drive's used space minus "not readable" folders
+- Hard links counted once, junctions not followed, online-only OneDrive files shown as zero local space (unit tests on fake trees, one real check)
+- Duplicates are confirmed by content hash; two files with the same name and size but different content are not reported
+- Deleting ticked items moves them to the Recycle Bin; restoring them brings them back byte for byte
+- Protected locations (Windows, Program Files, ProgramData, other profiles, System-attribute files, Verity data) are never offered and are refused if requested (unit tests)
+- The service never receives a file path; no file name reaches Verity's database or logs (grep test)
+- `storage.health` reports health, wear (or "not reported") and temperature for the laptop's drive; `storage.optimize` runs Optimize Drives and is refused during Session Mode
+- Manual: the owner frees space with the clean-up suggestions and restores one file from the Recycle Bin
+
+## M13 — Malware Scan
+
+Spec: `15-malware-scan.md`. Defender-powered status and scans.
+
+**Acceptance**
+
+- `security.status` matches Windows Security on the dev laptop (protecting product, real-time protection, definition age, last scans)
+- Quick scan from the app completes and reports Defender's result; the EICAR test file in a custom scan is detected and shown with Defender's action
+- `scan.start` is refused while Session Mode is active; the service accepts no path
+- With another antivirus registered (or simulated through fakes), Verity names it and offers no Defender scan
+- No Defender setting changes across a full test run (snapshot of `Get-MpPreference` before and after)
+- Detection file paths are never stored (grep test)
+- Manual: the owner runs a quick scan and opens Protection history from Verity
+
+---
+
 ## Risks to watch
 
 | Risk | Mitigation |
@@ -186,3 +262,7 @@ Spec: `08-lab.md`.
 | Benchmark noise makes the Lab frustrating | Calibration, block-count estimate up front, Quick mode, honest "inconclusive" |
 | Anti-cheat reaction | Passive design, strict passive mode, clear user messaging |
 | Laptop-vendor quirks | Capability report; guide-only for anything vendor-specific |
+| Users expect NetLimiter-style download limits | The Network screen says plainly what Windows can and cannot do without a driver |
+| A process rule hurts the app it targets | Every rule is reversible, drift-safe and labelled "not proven" until the Lab gives a verdict |
+| Deleting the wrong file | Recycle Bin only, protected-location refusal list, confirmation listing every item |
+| Defender unavailable (another antivirus active) | Detect through Security Center; hand off to the active product |

@@ -2,6 +2,34 @@
 
 Changes from the spec and why. Newest first.
 
+## 2026-11-23 — Four added milestones (owner request)
+
+The owner asked for Process Lasso-style CPU rules, NetLimiter-style network
+control, a storage cleaner and a malware scan. Researched and specified as
+M10–M13 (`12-process-rules.md` to `15-malware-scan.md`, roadmap section
+"Added milestones").
+
+- **No kernel driver for the network limiter.** NetLimiter's limits and
+  priorities come from its own kernel driver; `09-safety.md` §2 forbids one.
+  M11 uses Windows' Policy-based QoS (upload limits, DSCP tags), the Windows
+  Firewall and Delivery Optimization limits. Download limits for arbitrary apps
+  are not possible without a driver, and the screen says so.
+- **No home-made antivirus.** M13 drives Microsoft Defender through its WMI
+  interface and shows its results; Verity never changes Defender settings.
+- **Storage scans and deletes in the app, not the service**, so a standard user
+  never sees file names through SYSTEM, and the service never writes to a client
+  path. Deletion goes to the Recycle Bin.
+- **Order:** M12 and M13 change no system settings and are built next, beside
+  the co-developer's M2/M3 (exception to "one milestone at a time", by the
+  owner's request). M10 and M11 need M3's action framework and wait for it.
+- **Approved by the owner the same day** and written into `09-safety.md`:
+  Network uses Windows tools only (no driver); deletion goes to the Recycle Bin,
+  with permanent deletion for items it cannot take after a second confirmation;
+  CPU rules may open non-game processes, games get only CPU-set steering and
+  never in strict passive mode, no High/Realtime priority; gateway-only ICMP
+  during a user-started network test; the HKLM writes listed in
+  `13-network.md`. Build order: M12 and M13 now, M10 and M11 after M3.
+
 ## 2026-11-17 — M4 Session Mode and M5 Frame Story
 
 All probes ran on the dev laptop: Windows 11 25H2 build 26200, i5-11400H,
