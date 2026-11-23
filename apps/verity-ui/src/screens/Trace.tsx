@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { animate } from "animejs";
 import type { HitchGroup, Trace as TraceData } from "../api.ts";
+import { duration, ticksFor, yScale } from "../traceScale.ts";
 
 /** One row of system events under the trace, sharing its time axis. */
 export interface Lane {
@@ -19,6 +20,7 @@ const css = (name: string) => getComputedStyle(document.documentElement).getProp
  *  on a rail beneath. */
 export function Trace({ data, hitches, lanes = [], freq = 10_000_000 }: { data: TraceData; hitches: HitchGroup[]; lanes?: Lane[]; freq?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const { top, worst } = useMemo(() => yScale(data.ms), [data]);
 
   useEffect(() => {
     const el = canvas.current;
@@ -45,21 +47,19 @@ export function Trace({ data, hitches, lanes = [], freq = 10_000_000 }: { data: 
         acc += data.ms[i] ?? 0;
       }
       const total = acc || 1;
-      const sorted = data.ms.filter((m): m is number => m !== null).sort((a, b) => a - b);
-      const worst = sorted[sorted.length - 1] ?? 1;
-      const top = Math.max(40, worst * 1.12);
       const left = lanes.length ? 168 : 44;
       const rail = 22;
       const lanesH = lanes.length ? lanes.length * LANE_H + 10 : 0;
       const plotH = h - rail - 18 - lanesH;
       const plotW = w - left - 8;
-      const y = (ms: number) => 8 + plotH - (ms / top) * plotH;
+      // Frames slower than the top are drawn reaching the top edge.
+      const y = (ms: number) => 8 + plotH - (Math.min(ms, top) / top) * plotH;
       const x = (ms: number) => left + (ms / total) * plotW;
 
-      // grid at the 60/30/20 FPS lines
+      // grid at the 60/30/20 FPS lines and round numbers, never crowded
       g.font = `500 11px ${css("--read")}`;
       g.textBaseline = "middle";
-      for (const ms of [16.7, 33.3, 50, 66.7, 100].filter((m) => m < top)) {
+      for (const ms of ticksFor(top, plotH)) {
         g.strokeStyle = css("--rule-soft");
         g.lineWidth = 1;
         g.beginPath();
@@ -175,19 +175,27 @@ export function Trace({ data, hitches, lanes = [], freq = 10_000_000 }: { data: 
       ro.disconnect();
       anim?.pause();
     };
-  }, [data, hitches, lanes, freq]);
+  }, [data, hitches, lanes, freq, top]);
 
+  const cut = worst > top;
   return (
-    <canvas
-      ref={canvas}
-      className="trace-canvas"
-      style={lanes.length ? { height: 260 + lanes.length * LANE_H + 10 } : undefined}
-      role="img"
-      aria-label={
-        lanes.length
-          ? `Frame time over the recording, stutters marked beneath, then ${lanes.length} rows of system events: ${lanes.map((l) => l.label).join(", ")}`
-          : "Frame time over the recording, with stutters marked beneath"
-      }
-    />
+    <>
+      <canvas
+        ref={canvas}
+        className="trace-canvas"
+        style={lanes.length ? { height: 260 + lanes.length * LANE_H + 10 } : undefined}
+        role="img"
+        aria-label={
+          lanes.length
+            ? `Frame time over the recording, stutters marked beneath, then ${lanes.length} rows of system events: ${lanes.map((l) => l.label).join(", ")}`
+            : "Frame time over the recording, with stutters marked beneath"
+        }
+      />
+      {cut && (
+        <p className="hint">
+          Frames slower than {Math.round(top)} ms run off the top of the chart. The slowest took {duration(worst)}.
+        </p>
+      )}
+    </>
   );
 }
