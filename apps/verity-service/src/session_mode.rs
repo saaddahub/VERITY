@@ -6,7 +6,7 @@
 //! [`Msg`]s, so there are no locks around the machine.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -182,6 +182,9 @@ struct Runner {
     devices: Vec<(String, String)>,
     procs: HashMap<u32, (u64, String)>,
     running: Option<Running>,
+    /// A capture to start once the previous segment of this session has
+    /// released the capture lock (a relaunch right after an exit).
+    wanted: Option<ProcId>,
     acc: Option<Acc>,
     finishers: Vec<JoinHandle<()>>,
     watcher: bool,
@@ -224,6 +227,7 @@ pub fn start(
         devices: verity_sys::games::dos_devices(),
         procs: HashMap::new(),
         running: None,
+        wanted: None,
         acc: None,
         finishers: Vec::new(),
         watcher: false,
@@ -355,6 +359,15 @@ impl Runner {
         None
     }
 
+    /// The process the machine is arming or running a session for.
+    fn session_proc(&self) -> Option<ProcId> {
+        match self.machine.status() {
+            verity_session::machine::Status::Arming { proc, .. }
+            | verity_session::machine::Status::Active { proc, .. } => Some(proc),
+            verity_session::machine::Status::Idle { .. } => None,
+        }
+    }
+
     fn game_for(&mut self, nt_image: &str) -> Option<GameRef> {
         let dos = self.dos_path(nt_image)?;
         self.library
@@ -403,10 +416,21 @@ impl Runner {
                 if self.procs.get(&pid).is_some_and(|p| p.0 == create_time) {
                     self.procs.remove(&pid);
                 }
-                let proc = ProcId {
+                let mut proc = ProcId {
                     pid,
                     start: create_time,
                 };
+                // A process that was running before the watcher started (a
+                // manual start after a service restart) is held with start 0
+                // until this event brings its creation time. Its pid cannot be
+                // reused while it lives, so the first stop for that pid is its own.
+                let unknown = ProcId { pid, start: 0 };
+                if self.session_proc() == Some(unknown) {
+                    if let Some(acc) = self.acc.as_mut().filter(|a| a.proc == unknown) {
+                        acc.proc.start = create_time;
+                    }
+                    proc = unknown;
+                }
                 self.feed(Input::ProcessExit { proc }).await;
             }
             Msg::Input(input, ack) => {
@@ -450,6 +474,8 @@ impl Runner {
                 name: target.name.clone(),
                 exe: target.name.clone(),
             });
+        // 0 when the process started before the watcher; its stop event fills
+        // in the creation time (see the `ProcEvent::Stop` handling).
         let start = self.procs.get(&target.pid).map_or(0, |p| p.0);
         if !matches!(
             self.machine.status(),
@@ -503,6 +529,11 @@ impl Runner {
     }
 
     async fn on_tick(&mut self) {
+        if let Some(proc) = self.wanted.take() {
+            if self.running.is_none() && self.session_proc() == Some(proc) {
+                self.start_capture(proc);
+            }
+        }
         let mut inputs = vec![Input::Tick];
         if let Some(r) = &self.running {
             if r.frames.load(Ordering::Relaxed) > 0 {
@@ -578,10 +609,9 @@ impl Runner {
         if answer == "game" {
             if let Some((pid, ct, img)) = image {
                 if let Some(dos) = self.dos_path(&img) {
-                    let name = exe
-                        .trim_end_matches(".exe")
-                        .trim_end_matches(".EXE")
-                        .to_string();
+                    let name = Path::new(exe)
+                        .file_stem()
+                        .map_or_else(|| exe.to_string(), |s| s.to_string_lossy().into_owned());
                     let added = lock(&self.store).add_game(&NewGame {
                         name: &name,
                         exe_path: &dos,
@@ -663,6 +693,16 @@ impl Runner {
 
     fn start_capture(&mut self, proc: ProcId) {
         let Ok(lock_guard) = self.capturing.clone().try_lock_owned() else {
+            // This session's previous segment still holds the lock while its
+            // PresentMon and kernel trace shut down: start once it lets go.
+            let ours = self
+                .acc
+                .as_ref()
+                .is_some_and(|a| a.pending.iter().any(|p| !p.is_finished()));
+            if ours {
+                self.wanted = Some(proc);
+                return;
+            }
             self.notice(
                 "info",
                 "Verity is already recording; this session runs without a capture.".into(),
@@ -726,6 +766,7 @@ impl Runner {
     }
 
     fn stop_capture(&mut self, keep: bool) {
+        self.wanted = None;
         let Some(r) = self.running.take() else {
             if !keep {
                 self.acc = None;
@@ -836,10 +877,18 @@ fn scan_library(store: &Mutex<Store>) -> Result<(), String> {
         })
         .collect();
     let r = lock(store)
-        .sync_games(&["steam", "epic", "gog", "xbox"], &new)
+        .sync_games(&["steam", "epic", "gog", "xbox"], &new, &uninstalled)
         .map_err(|e| e.to_string())?;
     tracing::info!(?r, "library scanned");
     Ok(())
+}
+
+/// A game the scan did not find is really uninstalled only when its drive is
+/// there and its exe is not. One on an unplugged drive, or still on disk while
+/// its launcher updates it, keeps its entry and profile.
+fn uninstalled(exe_path: &str) -> bool {
+    let p = Path::new(exe_path);
+    p.ancestors().last().is_some_and(Path::exists) && !p.exists()
 }
 
 /// Public for `games.scan`.
@@ -917,26 +966,27 @@ fn store_session(
     }));
     events.sort_by_key(|e| e.qpc);
     let profile_json = serde_json::to_string(&acc.profile).ok();
-    let id = {
-        let mut s = lock(store);
-        let id = s
-            .insert_session(&NewSession {
-                pid: acc.proc.pid,
-                started_qpc: cap.start_qpc,
-                ended_qpc: cap.end_qpc,
-                qpc_freq: freq,
-                started_utc: &acc.started_utc,
-                summary: &summary,
-                frames: &cap.frames,
-                series: &capture::series(&cap, acc.proc.pid),
-                gaps: &cap.gaps,
-            })
-            .map_err(|e| e.to_string())?;
-        s.link_session(id, game.id, acc.proc.start, profile_json.as_deref())
-            .map_err(|e| e.to_string())?;
-        s.add_events(id, &events).map_err(|e| e.to_string())?;
-        id
-    };
+    let mut s = lock(store);
+    // The game may have been removed from the library during the session.
+    let game_id = game.id.filter(|&id| s.game(id).is_ok());
+    let id = s
+        .insert_session(&NewSession {
+            pid: acc.proc.pid,
+            started_qpc: cap.start_qpc,
+            ended_qpc: cap.end_qpc,
+            qpc_freq: freq,
+            started_utc: &acc.started_utc,
+            summary: &summary,
+            frames: &cap.frames,
+            series: &capture::series(&cap, acc.proc.pid),
+            gaps: &cap.gaps,
+            process_start_filetime: acc.proc.start,
+            game_id,
+            profile_json: profile_json.as_deref(),
+            events: &events,
+        })
+        .map_err(|e| e.to_string())?;
+    drop(s);
     let story = crate::story::for_session(&lock(store), id).ok();
     let mut line = format!(
         "{}: {:.0} FPS average, {:.0} FPS 1% low",
@@ -968,6 +1018,19 @@ mod tests {
             present_mode: 0,
             flags: 0,
         }
+    }
+
+    #[test]
+    fn only_a_missing_exe_on_a_present_drive_is_uninstalled() {
+        let sys = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        assert!(!uninstalled(&format!(r"{sys}\System32\cmd.exe")));
+        assert!(uninstalled(&format!(r"{sys}\no-such-game\game.exe")));
+        let absent = ('D'..='Z')
+            .rev()
+            .map(|d| format!(r"{d}:\"))
+            .find(|root| !Path::new(root).exists())
+            .expect("a free drive letter");
+        assert!(!uninstalled(&format!(r"{absent}Games\game.exe")));
     }
 
     #[test]

@@ -235,18 +235,44 @@ impl Service {
                 frames: &cap.frames,
                 series: &capture::series(&cap, target.pid),
                 gaps: &cap.gaps,
+                // shortcut: unknown for a manual recording, since reading it would
+                // open a handle to the target; Session Mode sessions record it.
+                process_start_filetime: 0,
+                game_id: None,
+                profile_json: None,
+                events: &[],
             })
             .map_err(store_error)?;
         tracing::info!(session = id, frames = cap.frames.len(), "capture stored");
         Ok(json!({ "id": id, "started_utc": started_utc, "summary": summary }))
     }
 
-    fn session_json(row: verity_store::SessionRow) -> Result<Value, RpcError> {
+    /// A session for `sessions.get` (`full`) or a row of `sessions.list`. List
+    /// rows leave out the per-stutter and per-gap lists, which grow with the
+    /// session, so the list stays small however many sessions are stored.
+    // shortcut: no paging; slim rows are about 600 bytes, so the list passes the
+    // 1 MiB message limit near 1,500 sessions. Page it before that is plausible.
+    fn session_json(row: verity_store::SessionRow, full: bool) -> Result<Value, RpcError> {
+        let groups = &row.summary.stats.hitch_groups;
+        let hitches = json!({
+            "count": groups.len(),
+            "worst_ms": groups.iter().map(|g| g.worst_ms).fold(0.0, f32::max),
+        });
+        let mut summary = to_json(row.summary)?;
+        if !full {
+            if let Some(s) = summary.as_object_mut() {
+                s.remove("capture_gaps");
+                if let Some(stats) = s.get_mut("stats").and_then(Value::as_object_mut) {
+                    stats.remove("hitch_groups");
+                }
+            }
+        }
         Ok(json!({
             "id": row.id,
             "started_utc": row.started_utc,
             "frame_chunks": row.frame_chunks,
-            "summary": to_json(row.summary)?,
+            "hitches": hitches,
+            "summary": summary,
         }))
     }
 
@@ -325,13 +351,13 @@ impl Handler for Service {
             "sessions.list" => {
                 let rows = self.store()?.list().map_err(store_error)?;
                 rows.into_iter()
-                    .map(Self::session_json)
+                    .map(|r| Self::session_json(r, false))
                     .collect::<Result<Vec<_>, _>>()
                     .map(Value::Array)
             }
             "sessions.get" => {
                 let p: SessionParams = params(p)?;
-                Self::session_json(self.store()?.get(p.id).map_err(store_error)?)
+                Self::session_json(self.store()?.get(p.id).map_err(store_error)?, true)
             }
             "sessions.frames" => {
                 let p: SessionParams = params(p)?;
@@ -433,10 +459,8 @@ impl Handler for Service {
             }
             "story.export" => {
                 let p: IdParams = params(p)?;
+                // The pipe server turns a reply over the message limit into an error.
                 let html = crate::story::html(&self.story(p.id)?);
-                if html.len() > verity_ipc::MAX_FRAME - 4096 {
-                    return Err(internal("report too large to send"));
-                }
                 Ok(json!({ "html": html }))
             }
             other => Err(RpcError::new(

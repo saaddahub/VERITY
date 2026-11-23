@@ -66,8 +66,35 @@ pub fn record(args: &[&str]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A `sessions.list` row: the summary without its per-stutter list.
+#[derive(Deserialize)]
+struct ListRow {
+    id: i64,
+    started_utc: String,
+    hitches: Hitches,
+    summary: ListSummary,
+}
+
+#[derive(Deserialize)]
+struct Hitches {
+    count: u64,
+}
+
+#[derive(Deserialize)]
+struct ListSummary {
+    exe: String,
+    capture_s: f64,
+    stats: ListStats,
+}
+
+#[derive(Deserialize)]
+struct ListStats {
+    avg_fps: f64,
+    low_1pct_fps: f64,
+}
+
 pub fn list() -> anyhow::Result<()> {
-    let sessions: Vec<Session> = serde_json::from_value(call("sessions.list", json!({}))?)?;
+    let sessions: Vec<ListRow> = serde_json::from_value(call("sessions.list", json!({}))?)?;
     if sessions.is_empty() {
         println!("no sessions recorded yet");
     }
@@ -80,7 +107,7 @@ pub fn list() -> anyhow::Result<()> {
             s.summary.exe,
             st.avg_fps,
             st.low_1pct_fps,
-            st.hitch_groups.len(),
+            s.hitches.count,
             s.summary.capture_s
         );
     }

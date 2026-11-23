@@ -14,50 +14,30 @@ pub struct SessionBounds {
     pub game_id: Option<i64>,
 }
 
+/// Writes a session's events inside the caller's transaction.
+pub(crate) fn insert(
+    tx: &rusqlite::Transaction,
+    id: i64,
+    events: &[SysEvent],
+) -> Result<(), StoreError> {
+    let mut stmt = tx.prepare(
+        "INSERT INTO events (session_id, qpc, duration_ticks, kind, subject, magnitude)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for e in events {
+        stmt.execute(params![
+            id,
+            e.qpc as i64,
+            e.duration_ticks as i64,
+            e.kind,
+            e.subject,
+            e.magnitude
+        ])?;
+    }
+    Ok(())
+}
+
 impl Store {
-    /// Records which game a session belongs to, the game process's creation
-    /// time (its identity with the pid) and the profile in force.
-    pub fn link_session(
-        &mut self,
-        id: i64,
-        game_id: Option<i64>,
-        process_start_filetime: u64,
-        profile_json: Option<&str>,
-    ) -> Result<(), StoreError> {
-        let n = self.conn.execute(
-            "UPDATE sessions SET game_id = ?2, process_start_filetime = ?3, profile_json = ?4
-             WHERE id = ?1",
-            params![id, game_id, process_start_filetime as i64, profile_json],
-        )?;
-        if n == 0 {
-            return Err(StoreError::NotFound(format!("session {id}")));
-        }
-        Ok(())
-    }
-
-    /// Appends events to a session in one transaction.
-    pub fn add_events(&mut self, id: i64, events: &[SysEvent]) -> Result<(), StoreError> {
-        let tx = self.conn.transaction()?;
-        {
-            let mut stmt = tx.prepare(
-                "INSERT INTO events (session_id, qpc, duration_ticks, kind, subject, magnitude)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            )?;
-            for e in events {
-                stmt.execute(params![
-                    id,
-                    e.qpc as i64,
-                    e.duration_ticks as i64,
-                    e.kind,
-                    e.subject,
-                    e.magnitude
-                ])?;
-            }
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
     /// Every event of a session, in time order (capture gaps included).
     pub fn events(&self, id: i64) -> Result<Vec<SysEvent>, StoreError> {
         let mut stmt = self.conn.prepare(
@@ -119,27 +99,6 @@ mod tests {
     #[test]
     fn events_links_and_bounds() {
         let mut s = Store::open_in_memory().unwrap();
-        s.conn
-            .execute(
-                "INSERT INTO sessions (pid, process_start_filetime, started_qpc, ended_qpc,
-                   qpc_freq, started_utc, capture_mode) VALUES (1, 0, 100, 900, 10, 'x', 'standard')",
-                [],
-            )
-            .unwrap();
-        let id = s.conn.last_insert_rowid();
-        let ev = |q: u64, k: &str| SysEvent {
-            qpc: q,
-            duration_ticks: 5,
-            kind: k.into(),
-            subject: "a.sys".into(),
-            magnitude: 1.5,
-        };
-        s.add_events(id, &[ev(300, "dpc"), ev(200, "disk_io")])
-            .unwrap();
-        let back = s.events(id).unwrap();
-        assert_eq!(back, [ev(200, "disk_io"), ev(300, "dpc")]);
-        assert!(s.events(id + 1).unwrap().is_empty());
-
         let game = s
             .add_game(&crate::NewGame {
                 name: "G",
@@ -148,7 +107,45 @@ mod tests {
                 launcher_id: None,
             })
             .unwrap();
-        s.link_session(id, Some(game), 1234, Some("{}")).unwrap();
+        let ev = |q: u64, k: &str| SysEvent {
+            qpc: q,
+            duration_ticks: 5,
+            kind: k.into(),
+            subject: "a.sys".into(),
+            magnitude: 1.5,
+        };
+        let summary: verity_core::telemetry::SessionSummary =
+            serde_json::from_value(serde_json::json!({
+                "exe": "g.exe", "pid": 1, "capture_mode": "standard", "capture_s": 80.0,
+                "warmup_excluded_s": 5.0, "total_frames": 0,
+                "stats": { "frame_count": 0, "duration_s": 0.0, "avg_fps": 0.0,
+                    "low_1pct_fps": 0.0, "low_01pct_fps": 0.0, "pacing_spread_ms": 0.0,
+                    "hitch_groups": [], "hitch_rate_per_min": 0.0 },
+                "gpu_adapter": null, "capture_gaps": [], "unparsed_rows": 0, "samples": 0,
+                "overhead_cpu_pct": 0.0, "overhead_budget_pct": 1.0
+            }))
+            .unwrap();
+        let id = s
+            .insert_session(&crate::NewSession {
+                pid: 1,
+                started_qpc: 100,
+                ended_qpc: 900,
+                qpc_freq: 10,
+                started_utc: "x",
+                summary: &summary,
+                frames: &[],
+                series: &[],
+                gaps: &[],
+                process_start_filetime: 1234,
+                game_id: Some(game),
+                profile_json: Some("{}"),
+                events: &[ev(300, "dpc"), ev(200, "disk_io")],
+            })
+            .unwrap();
+        let back = s.events(id).unwrap();
+        assert_eq!(back, [ev(200, "disk_io"), ev(300, "dpc")]);
+        assert!(s.events(id + 1).unwrap().is_empty());
+
         let b = s.bounds(id).unwrap();
         assert_eq!(
             b,
@@ -159,10 +156,15 @@ mod tests {
                 game_id: Some(game)
             }
         );
-        assert!(matches!(
-            s.link_session(99, None, 0, None),
-            Err(StoreError::NotFound(_))
-        ));
+        let start: i64 = s
+            .conn
+            .query_row(
+                "SELECT process_start_filetime FROM sessions WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(start, 1234);
         assert!(matches!(s.bounds(99), Err(StoreError::NotFound(_))));
         assert!(s.all_frames(id).unwrap().is_empty());
     }

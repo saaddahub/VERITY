@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -187,24 +188,39 @@ async fn export_csv(app: tauri::AppHandle, id: i64, chunks: u32) -> Res<String> 
     Ok(path.display().to_string())
 }
 
+/// Why the panic hotkey could not be registered, if it could not.
+static HOTKEY_ERROR: OnceLock<String> = OnceLock::new();
+
+/// A Session Mode status from the service, plus what this app cannot do
+/// (shown with the service's own capability notes).
+async fn status_call(method: &str, params: Value) -> Res<Value> {
+    let mut v = call(method, params).await?;
+    if let (Some(e), Some(caps)) = (HOTKEY_ERROR.get(), v["capabilities"].as_array_mut()) {
+        caps.push(json!(format!(
+            "The panic hotkey Ctrl+Alt+Shift+V is unavailable ({e}). Use Undo now or the tray menu."
+        )));
+    }
+    Ok(v)
+}
+
 #[tauri::command]
 async fn session_status(since: u64) -> Res<Value> {
-    call("session.status", json!({ "since": since })).await
+    status_call("session.status", json!({ "since": since })).await
 }
 
 #[tauri::command]
 async fn session_enable(on: bool) -> Res<Value> {
-    call("session.enable", json!({ "on": on })).await
+    status_call("session.enable", json!({ "on": on })).await
 }
 
 #[tauri::command]
 async fn session_stop() -> Res<Value> {
-    call("session.stop", json!({})).await
+    status_call("session.stop", json!({})).await
 }
 
 #[tauri::command]
 async fn session_panic() -> Res<Value> {
-    call("session.panic", json!({})).await
+    status_call("session.panic", json!({})).await
 }
 
 #[tauri::command]
@@ -295,13 +311,12 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::TrayIconBuilder;
     let open = MenuItem::with_id(app, "open", "Open Verity", true, None::<&str>)?;
-    let panic = MenuItem::with_id(
-        app,
-        "panic",
-        "Undo session changes now (Ctrl+Alt+Shift+V)",
-        true,
-        None::<&str>,
-    )?;
+    let panic_label = if HOTKEY_ERROR.get().is_some() {
+        "Undo session changes now"
+    } else {
+        "Undo session changes now (Ctrl+Alt+Shift+V)"
+    };
+    let panic = MenuItem::with_id(app, "panic", panic_label, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Verity", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &panic, &quit])?;
     let mut builder = TrayIconBuilder::with_id("verity")
@@ -333,7 +348,8 @@ fn main() {
     let hotkey =
         verity_sys::agent::Hotkey::register(verity_sys::agent::PANIC_VK, Box::new(panic_now));
     if let Err(e) = &hotkey {
-        eprintln!("panic hotkey unavailable: {e}");
+        // Usually another app owns the shortcut; the app says so on its Games screen.
+        let _ = HOTKEY_ERROR.set(e.to_string());
     }
     report_foreground();
     tauri::Builder::default()
@@ -374,7 +390,7 @@ fn main() {
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
             // No console in a GUI app; the message box is the only place to say it.
-            eprintln!("Verity could not start: {e}");
+            let _ = verity_sys::agent::error_box("Verity", &format!("Verity could not start: {e}"));
             std::process::exit(1);
         });
 }

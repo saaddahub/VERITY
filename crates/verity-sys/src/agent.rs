@@ -5,18 +5,19 @@ use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 use verity_core::OsError;
-use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{GetLastError, LPARAM, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
     MOD_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, PostThreadMessageW, MSG, WM_HOTKEY,
-    WM_QUIT,
+    GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, MessageBoxW, PostThreadMessageW,
+    MB_ICONERROR, MB_OK, MSG, WM_HOTKEY, WM_QUIT,
 };
 
-use crate::hresult;
+use crate::{hresult, wide};
 
 /// Pid of the process that owns the foreground window; None on the secure
 /// desktop or when no window has focus. Reads no window title.
@@ -30,6 +31,29 @@ pub fn foreground_pid() -> Option<u32> {
     // SAFETY: `hwnd` came from GetForegroundWindow; `pid` is an out-parameter.
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     (pid != 0).then_some(pid)
+}
+
+/// Shows a modal error message: the only way a GUI app, which has no
+/// console, can report a failure before its window exists.
+pub fn error_box(title: &str, text: &str) -> Result<(), OsError> {
+    let (title, text) = (wide(title), wide(text));
+    // SAFETY: both strings are NUL-terminated and outlive the call.
+    let r = unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(text.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_OK | MB_ICONERROR,
+        )
+    };
+    if r.0 == 0 {
+        // SAFETY: reads the calling thread's last error.
+        return Err(OsError {
+            api: "MessageBoxW",
+            code: unsafe { GetLastError() }.0,
+        });
+    }
+    Ok(())
 }
 
 /// A registered global hotkey. `on_press` runs on the hotkey thread.

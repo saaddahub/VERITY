@@ -3,7 +3,7 @@
 // Doctor lands (M2) they become service rules (D001, D003, D010) and this file
 // only renders their findings.
 
-import type { Mark, Session, SystemInfo } from "./api.ts";
+import type { Mark, SessionRow, SystemInfo } from "./api.ts";
 
 export interface Verdict {
   mark: Mark;
@@ -23,7 +23,7 @@ const fps = (v: number) => v.toFixed(1);
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 export const appName = (exe: string) => exe.replace(/\.exe$/i, "");
 
-export function verdict(s: Session): Verdict {
+export function verdict(s: SessionRow): Verdict {
   const { stats, exe, capture_s, warmup_excluded_s } = s.summary;
   const name = appName(exe);
   if (stats.frame_count === 0) {
@@ -33,7 +33,7 @@ export function verdict(s: Session): Verdict {
       detail: `Verity skips the first ${warmup_excluded_s.toFixed(0)} seconds while things settle. Record for longer.`,
     };
   }
-  const groups = stats.hitch_groups.length;
+  const groups = s.hitches.count;
   if (groups === 0) {
     return {
       mark: "ok",
@@ -41,7 +41,7 @@ export function verdict(s: Session): Verdict {
       detail: `No stutters in ${capture_s.toFixed(0)} seconds. Even the slowest 1% of frames held ${fps(stats.low_1pct_fps)} FPS.`,
     };
   }
-  const worst = Math.max(...stats.hitch_groups.map((g) => g.worst_ms));
+  const worst = s.hitches.worst_ms;
   return {
     mark: stats.hitch_rate_per_min <= 3 ? "look" : "fix",
     headline: `${name} ran at ${fps(stats.avg_fps)} FPS but stuttered ${plural(groups, "time", "times")}.`,
@@ -56,7 +56,7 @@ export const isDiscrete = (g: { vendor: string; dedicated_vram_bytes: number }) 
 const shortGpu = (name: string) =>
   name.replace(/\(R\)|\(TM\)/g, "").replace(/ Laptop GPU$/, "").replace(/\s+/g, " ").trim();
 
-export function checks(s: Session | null, info: SystemInfo | null): Check[] {
+export function checks(s: SessionRow | null, info: SystemInfo | null): Check[] {
   const out: Check[] = [];
   if (info && s) {
     const discrete = info.gpus.find(isDiscrete);

@@ -51,10 +51,21 @@ export interface Summary {
   overhead_cpu_pct: number;
   overhead_budget_pct: number;
 }
-export interface Session {
+/** Stutter count and worst frame, carried by list rows and full sessions alike. */
+export interface Hitches {
+  count: number;
+  worst_ms: number;
+}
+/** A `sessions_list` row: the summary without the lists that grow with the session. */
+export interface SessionRow {
   id: number;
   started_utc: string;
   frame_chunks: number;
+  hitches: Hitches;
+  summary: Omit<Summary, "stats" | "capture_gaps"> & { stats: Omit<Summary["stats"], "hitch_groups"> };
+}
+/** One session in full (`session_get`). */
+export interface Session extends SessionRow {
   summary: Summary;
 }
 export interface Trace {
@@ -153,8 +164,8 @@ export const api = {
   systemInfo: () => invoke<SystemInfo>("system_info"),
   gpuApps: () => invoke<GpuApp[]>("gpu_apps"),
   record: (pid: number, durationS: number | null) =>
-    invoke<Session>("record", { pid, durationS }),
-  sessions: () => invoke<Session[]>("sessions_list"),
+    invoke<{ id: number }>("record", { pid, durationS }),
+  sessions: () => invoke<SessionRow[]>("sessions_list"),
   session: (id: number) => invoke<Session>("session_get", { id }),
   trace: (id: number, chunks: number) => invoke<Trace>("session_trace", { id, chunks }),
   exportCsv: (id: number, chunks: number) => invoke<string>("export_csv", { id, chunks }),

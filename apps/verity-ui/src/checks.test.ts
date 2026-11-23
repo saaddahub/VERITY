@@ -1,20 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checks, verdict } from "./checks.ts";
-import type { Session, SystemInfo } from "./api.ts";
+import type { SessionRow, SystemInfo } from "./api.ts";
 
-const session = (over: Partial<Session["summary"]> = {}, groups = 0): Session => ({
+const session = (over: Partial<SessionRow["summary"]> = {}, groups = 0): SessionRow => ({
   id: 1,
   started_utc: "2026-11-14T12:00:00Z",
   frame_chunks: 1,
+  hitches: { count: groups, worst_ms: groups ? 50 + groups - 1 : 0 },
   summary: {
     exe: "game.exe", pid: 1, capture_s: 30, warmup_excluded_s: 5, total_frames: 1800,
     stats: {
       frame_count: 1500, duration_s: 25, avg_fps: 60, low_1pct_fps: 58, low_01pct_fps: 57, pacing_spread_ms: 0.1,
-      hitch_groups: Array.from({ length: groups }, (_, i) => ({ start_qpc: i, end_qpc: i + 1, hitches: 1, worst_ms: 50 + i })),
       hitch_rate_per_min: groups * 2.4,
     },
-    gpu_adapter: "Intel(R) UHD Graphics", capture_gaps: [], overhead_cpu_pct: 0.1, overhead_budget_pct: 0.3,
+    gpu_adapter: "Intel(R) UHD Graphics", overhead_cpu_pct: 0.1, overhead_budget_pct: 0.3,
     ...over,
   },
 });
@@ -38,6 +38,7 @@ test("verdict: smooth, a few stutters, many stutters, too short", () => {
   assert.equal(verdict(session({}, 1)).mark, "look");
   assert.match(verdict(session({}, 1)).headline, /stuttered 1 time\./);
   assert.equal(verdict(session({}, 20)).mark, "fix");
+  assert.match(verdict(session({}, 20)).detail, /worst frame took 69 ms/);
   const short = session({ stats: { ...session().summary.stats, frame_count: 0 } });
   assert.equal(verdict(short).mark, "none");
 });

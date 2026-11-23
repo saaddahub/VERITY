@@ -11,7 +11,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use verity_core::metrics::Frame;
-use verity_core::telemetry::{CaptureGap, SessionSummary};
+use verity_core::telemetry::{CaptureGap, SessionSummary, SysEvent};
 
 /// Numbered migrations; `PRAGMA user_version` records how many have run.
 const MIGRATIONS: [&str; 2] = [
@@ -20,6 +20,9 @@ const MIGRATIONS: [&str; 2] = [
 ];
 /// Roughly this much play time per frame chunk.
 const CHUNK_SECONDS: u64 = 10;
+/// And never more frames than this, so one chunk sent as JSON (about 170
+/// bytes a frame) stays well under the 1 MiB pipe message limit at any FPS.
+const MAX_CHUNK_FRAMES: usize = 4000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -43,6 +46,13 @@ pub struct NewSession<'a> {
     /// (metric name, points).
     pub series: &'a [(&'a str, Vec<(u64, f32)>)],
     pub gaps: &'a [CaptureGap],
+    /// The game process's creation time (its identity with the pid); 0 when unknown.
+    pub process_start_filetime: u64,
+    /// Library game and profile in force, for Session Mode sessions.
+    pub game_id: Option<i64>,
+    pub profile_json: Option<&'a str>,
+    /// Frame Story and session events.
+    pub events: &'a [SysEvent],
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,34 +90,39 @@ impl Store {
         Ok(Self { conn })
     }
 
-    /// Stores a session with its frames, counters and gaps, all or nothing.
+    /// Stores a session with its frames, counters, gaps, events and game link,
+    /// all or nothing.
     pub fn insert_session(&mut self, s: &NewSession) -> Result<i64, StoreError> {
         let summary =
             serde_json::to_string(s.summary).map_err(|e| StoreError::Codec(e.to_string()))?;
         let tx = self.conn.transaction()?;
-        // shortcut: process_start_filetime is 0 (not recorded) because reading it
-        // needs a handle to the game; fill it from kernel process events in M4.
         tx.execute(
             "INSERT INTO sessions (pid, process_start_filetime, started_qpc, ended_qpc,
-                 qpc_freq, started_utc, capture_mode, summary_json)
-             VALUES (?1, 0, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 qpc_freq, started_utc, capture_mode, summary_json, game_id, profile_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 s.pid,
+                s.process_start_filetime as i64,
                 s.started_qpc as i64,
                 s.ended_qpc as i64,
                 s.qpc_freq as i64,
                 s.started_utc,
                 s.summary.capture_mode,
-                summary
+                summary,
+                s.game_id,
+                s.profile_json
             ],
         )?;
         let id = tx.last_insert_rowid();
+        events::insert(&tx, id, s.events)?;
 
         let span = CHUNK_SECONDS * s.qpc_freq;
         let mut rest = s.frames;
         let mut seq = 0u32;
         while let Some(first) = rest.first() {
-            let n = rest.partition_point(|f| f.qpc < first.qpc + span).max(1);
+            let n = rest
+                .partition_point(|f| f.qpc < first.qpc + span)
+                .clamp(1, MAX_CHUNK_FRAMES);
             let (chunk, tail) = rest.split_at(n);
             tx.execute(
                 "INSERT INTO frame_chunks (session_id, seq, start_qpc, frame_count, data)
@@ -309,6 +324,10 @@ mod tests {
                 frames: &frames,
                 series: &series,
                 gaps: &gaps,
+                process_start_filetime: 0,
+                game_id: None,
+                profile_json: None,
+                events: &[],
             })
             .unwrap();
 
@@ -338,6 +357,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(gap_rows, 1);
+    }
+
+    #[test]
+    fn high_fps_chunks_are_capped() {
+        let mut store = Store::open_in_memory().unwrap();
+        // 10 s at 1000 FPS: one time chunk, split by the frame cap.
+        let frames: Vec<Frame> = frames(10_000)
+            .into_iter()
+            .enumerate()
+            .map(|(i, f)| Frame {
+                qpc: 1_000 + i as u64 * FREQ / 1000,
+                ..f
+            })
+            .collect();
+        let summary = summary(&frames);
+        let id = store
+            .insert_session(&NewSession {
+                pid: 1,
+                started_qpc: 1_000,
+                ended_qpc: 1_000 + 10 * FREQ,
+                qpc_freq: FREQ,
+                started_utc: "2026-11-23T10:00:00Z",
+                summary: &summary,
+                frames: &frames,
+                series: &[],
+                gaps: &[],
+                process_start_filetime: 0,
+                game_id: None,
+                profile_json: None,
+                events: &[],
+            })
+            .unwrap();
+        assert_eq!(store.get(id).unwrap().frame_chunks, 3);
+        assert_eq!(store.frames(id, 0).unwrap().len(), MAX_CHUNK_FRAMES);
+        assert_eq!(store.frames(id, 2).unwrap().len(), 2000);
     }
 
     #[test]

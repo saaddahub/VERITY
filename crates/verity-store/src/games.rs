@@ -32,12 +32,15 @@ pub struct SyncResult {
 }
 
 impl Store {
-    /// Makes the stored games from `sources` match `found`. A game that is gone
-    /// from disk but has recorded sessions is kept, so its history stays named.
+    /// Makes the stored games from `sources` match `found`. A game the scan did
+    /// not find is removed only if `uninstalled(exe_path)` says it is really
+    /// gone, not just out of reach (an unplugged drive, a game mid-update), and
+    /// only if it has no recorded sessions, so its history stays named.
     pub fn sync_games(
         &mut self,
         sources: &[&str],
         found: &[NewGame],
+        uninstalled: &dyn Fn(&str) -> bool,
     ) -> Result<SyncResult, StoreError> {
         let tx = self.conn.transaction()?;
         let now = utc_now();
@@ -88,6 +91,7 @@ impl Store {
                 .filter(|(_, path, source)| {
                     sources.contains(&source.as_str())
                         && !found.iter().any(|g| g.exe_path.eq_ignore_ascii_case(path))
+                        && uninstalled(path)
                 })
                 .map(|(id, _, _)| id)
                 .collect()
@@ -254,39 +258,50 @@ mod tests {
         }
     }
 
+    /// Every game the scan misses counts as uninstalled.
+    const GONE: fn(&str) -> bool = |_| true;
+
     #[test]
     fn sync_adds_updates_and_removes() {
         let mut s = Store::open_in_memory().unwrap();
-        let r = s
-            .sync_games(
-                &["steam"],
-                &[g("A", r"C:\a.exe", "steam"), g("B", r"C:\b.exe", "steam")],
-            )
-            .unwrap();
+        let both = [g("A", r"C:\a.exe", "steam"), g("B", r"C:\b.exe", "steam")];
+        let r = s.sync_games(&["steam"], &both, &GONE).unwrap();
         assert_eq!((r.added, r.updated, r.removed), (2, 0, 0));
         let manual = s.add_game(&g("M", r"C:\m.exe", "manual")).unwrap();
         // Same exe, different case: no duplicate.
         assert_eq!(s.add_game(&g("M2", r"c:\M.EXE", "manual")).unwrap(), manual);
 
         // A renamed, B uninstalled; the manual game is not touched by a steam sync.
-        let r = s
-            .sync_games(&["steam"], &[g("A2", r"C:\A.exe", "steam")])
-            .unwrap();
+        let renamed = [g("A2", r"C:\A.exe", "steam")];
+        let r = s.sync_games(&["steam"], &renamed, &GONE).unwrap();
         assert_eq!((r.added, r.updated, r.removed), (0, 1, 1));
         let names: Vec<String> = s.games().unwrap().into_iter().map(|g| g.name).collect();
         assert_eq!(names, ["A2", "M"]);
 
         // Unchanged rescan reports no updates.
-        let r = s
-            .sync_games(&["steam"], &[g("A2", r"C:\A.exe", "steam")])
-            .unwrap();
+        let r = s.sync_games(&["steam"], &renamed, &GONE).unwrap();
         assert_eq!((r.added, r.updated, r.removed), (0, 0, 0));
+    }
+
+    #[test]
+    fn a_game_out_of_reach_keeps_its_entry_and_profile() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.sync_games(&["steam"], &[g("E", r"E:\e.exe", "steam")], &GONE)
+            .unwrap();
+        let id = s.games().unwrap()[0].id;
+        s.set_profile(Some(id), "{\"g\":1}").unwrap();
+        // The scan misses it because drive E: is unplugged.
+        let r = s
+            .sync_games(&["steam"], &[], &|p| !p.starts_with("E:"))
+            .unwrap();
+        assert_eq!(r.removed, 0);
+        assert_eq!(s.profile(Some(id)).unwrap().as_deref(), Some("{\"g\":1}"));
     }
 
     #[test]
     fn a_game_with_sessions_survives_uninstall_and_removal_unlinks() {
         let mut s = Store::open_in_memory().unwrap();
-        s.sync_games(&["steam"], &[g("A", r"C:\a.exe", "steam")])
+        s.sync_games(&["steam"], &[g("A", r"C:\a.exe", "steam")], &GONE)
             .unwrap();
         let id = s.games().unwrap()[0].id;
         s.conn
@@ -296,7 +311,7 @@ mod tests {
                 [id],
             )
             .unwrap();
-        let r = s.sync_games(&["steam"], &[]).unwrap();
+        let r = s.sync_games(&["steam"], &[], &GONE).unwrap();
         assert_eq!(r.removed, 0);
         s.remove_game(id).unwrap();
         assert!(s.games().unwrap().is_empty());

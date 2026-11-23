@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Session, type StoryData, type SystemInfo, type Trace as TraceData } from "../api.ts";
+import { api, type Session, type SessionRow, type StoryData, type SystemInfo, type Trace as TraceData } from "../api.ts";
 import type { Data, Page } from "../App.tsx";
 import { appName, checks, verdict } from "../checks.ts";
 import { Icon, Readings, Sheet, when } from "../ui.tsx";
@@ -64,7 +64,7 @@ export function Sessions({ data, selected, go }: { data: Data; selected?: number
               </span>
               <span className="fps reading">
                 {s.summary.stats.avg_fps.toFixed(1)}
-                <small>{s.summary.stats.hitch_groups.length} stutters</small>
+                <small>{s.hitches.count} stutters</small>
               </span>
             </button>
           );
@@ -75,7 +75,8 @@ export function Sessions({ data, selected, go }: { data: Data; selected?: number
   );
 }
 
-function Detail({ session, info }: { session: Session; info: SystemInfo | null }) {
+function Detail({ session, info }: { session: SessionRow; info: SystemInfo | null }) {
+  const [full, setFull] = useState<Session | null>(null);
   const [trace, setTrace] = useState<TraceData | null>(null);
   const [traceError, setTraceError] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
@@ -85,8 +86,11 @@ function Detail({ session, info }: { session: Session; info: SystemInfo | null }
   const lanes = useMemo(() => lanesFrom(story), [story]);
   const s = session.summary;
   const st = s.stats;
+  const gaps = full?.summary.capture_gaps.length ?? 0;
 
   useEffect(() => {
+    // The list row has no per-stutter detail; the trace needs the full session.
+    api.session(session.id).then(setFull, (e) => setTraceError(String(e)));
     api.trace(session.id, session.frame_chunks).then(setTrace, (e) => setTraceError(String(e)));
     api.story(session.id).then(setStory, (e) => setStoryError(String(e)));
   }, [session.id, session.frame_chunks]);
@@ -130,7 +134,7 @@ function Detail({ session, info }: { session: Session; info: SystemInfo | null }
             { label: "Average", value: st.avg_fps.toFixed(1), unit: "FPS" },
             { label: "Slowest 1%", value: st.low_1pct_fps.toFixed(1), unit: "FPS" },
             { label: "Slowest 0.1%", value: st.low_01pct_fps.toFixed(1), unit: "FPS" },
-            { label: "Stutters", value: String(st.hitch_groups.length), unit: st.hitch_groups.length ? `${st.hitch_rate_per_min.toFixed(1)}/min` : undefined },
+            { label: "Stutters", value: String(session.hitches.count), unit: session.hitches.count ? `${st.hitch_rate_per_min.toFixed(1)}/min` : undefined },
           ]}
         />
       )}
@@ -154,8 +158,8 @@ function Detail({ session, info }: { session: Session; info: SystemInfo | null }
             </span>
           </div>
         </div>
-        {trace ? (
-          <Trace data={trace} hitches={st.hitch_groups} lanes={lanes} freq={story?.qpc_freq} />
+        {trace && full ? (
+          <Trace data={trace} hitches={full.summary.stats.hitch_groups} lanes={lanes} freq={story?.qpc_freq} />
         ) : traceError ? (
           <p className="error-text">Couldn't load the frames: {traceError}</p>
         ) : (
@@ -176,10 +180,12 @@ function Detail({ session, info }: { session: Session; info: SystemInfo | null }
           <dt>Length counted</dt>
           <dd className="reading">{st.duration_s.toFixed(1)} s</dd>
         </div>
-        {s.capture_gaps.length > 0 && (
+        {gaps > 0 && (
           <div>
             <dt>Gaps in the recording</dt>
-            <dd>{s.capture_gaps.length} short gap, not counted as stutter</dd>
+            <dd>
+              {gaps} short {gaps === 1 ? "gap" : "gaps"}, not counted as stutter
+            </dd>
           </div>
         )}
       </dl>

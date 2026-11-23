@@ -2,7 +2,7 @@
 // from real test recordings of the framegen tool on the development laptop.
 // Never used inside the app.
 
-import type { Game, Session, SessionStatus, StoryData, SystemInfo, Trace } from "./api.ts";
+import type { Game, Session, SessionRow, SessionStatus, StoryData, SystemInfo, Trace } from "./api.ts";
 
 const FREQ = 10_000_000;
 
@@ -39,7 +39,7 @@ function groupsFor(trace: Trace) {
   );
 }
 
-const sessions: Session[] = [
+const sessions: Session[] = ([
   {
     id: 5,
     started_utc: "2026-11-14T12:26:13Z",
@@ -60,7 +60,20 @@ const sessions: Session[] = [
       gpu_adapter: "Intel(R) UHD Graphics", capture_gaps: [], overhead_cpu_pct: 0.179, overhead_budget_pct: 0.3,
     },
   },
-];
+] satisfies Omit<Session, "hitches">[]).map((s) => ({
+  ...s,
+  hitches: {
+    count: s.summary.stats.hitch_groups.length,
+    worst_ms: Math.max(0, ...s.summary.stats.hitch_groups.map((g) => g.worst_ms)),
+  },
+}));
+
+/** What `sessions_list` sends: no per-stutter or per-gap lists. */
+function row(s: Session): SessionRow {
+  const { capture_gaps: _gaps, stats, ...summary } = s.summary;
+  const { hitch_groups: _groups, ...listStats } = stats;
+  return { ...s, summary: { ...summary, stats: listStats } };
+}
 
 const system: SystemInfo = {
   windows: { major: 10, build: 26200, ubr: 9974, display_version: "25H2" },
@@ -128,7 +141,7 @@ export async function preview<T>(cmd: string, args?: Record<string, unknown>): P
   const answers: Record<string, unknown> = {
     service_status: { state: "running" },
     system_info: system,
-    sessions_list: sessions,
+    sessions_list: sessions.map(row),
     session_get: sessions.find((s) => s.id === id),
     session_trace: traces[id],
     gpu_apps: [

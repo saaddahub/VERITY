@@ -169,6 +169,13 @@ impl StoryCapture {
         let freq = qpc_freq();
         let mut events = Vec::new();
         if let Some(c) = self.collector.lock().ok().and_then(|mut c| c.take()) {
+            if c.dropped > 0 {
+                self.caveats.push(format!(
+                    "Kept the first {} kernel events; {} later ones were not stored",
+                    verity_telemetry::kernel::MAX_EVENTS,
+                    c.dropped
+                ));
+            }
             let (ev, unattributed) = c.finish();
             if unattributed > 0 {
                 tracing::debug!(unattributed, "DPC/ISR events matched no driver");

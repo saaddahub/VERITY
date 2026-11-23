@@ -101,6 +101,12 @@ const FAULT_COUNT: u32 = 5;
 const DISK_SLOW_MS: f64 = 50.0;
 const DISK_WINDOW_MS: u64 = 250;
 const DISK_BURST_BYTES: u64 = 20 * 1024 * 1024;
+/// Single DPC/ISR or slow-disk events of one source this close together are
+/// stored as one longer event. Frame Story widens each by at least 20 ms, so
+/// joining gaps under that leaves its coverage windows exactly as they were.
+const COALESCE_MS: u64 = 10;
+/// Hard ceiling on stored events per capture; past it events are counted, not kept.
+pub const MAX_EVENTS: usize = 200_000;
 
 #[derive(Default)]
 struct Bucket {
@@ -109,8 +115,9 @@ struct Bucket {
     count: u32,
 }
 
-/// Turns kernel events into Frame Story events as they arrive. Holds only
-/// small aggregates, so a long capture does not grow memory with DPC volume.
+/// Turns kernel events into Frame Story events as they arrive. Bursts of
+/// single events from one source are joined, and the total is capped at
+/// [`MAX_EVENTS`], so a misbehaving driver cannot grow memory without bound.
 pub struct Collector {
     freq: u64,
     game_pid: u32,
@@ -120,11 +127,16 @@ pub struct Collector {
     threads: HashMap<u32, u32>,
     names: HashMap<u32, String>,
     dpc: HashMap<(String, bool), Bucket>,
-    faults: HashMap<u32, (u64, u32)>,
+    /// Per process: (window start, faults in it, index of its event once emitted).
+    faults: HashMap<u32, (u64, u32, Option<usize>)>,
     disk: HashMap<u32, (u64, u64)>,
+    /// Index of the latest single event per (kind, subject), for joining.
+    last_single: HashMap<(&'static str, String), usize>,
     pub events: Vec<SysEvent>,
     /// DPC/ISR routines that matched no module.
     pub unattributed: u64,
+    /// Events not kept because [`MAX_EVENTS`] was reached.
+    pub dropped: u64,
 }
 
 impl Collector {
@@ -141,8 +153,45 @@ impl Collector {
             dpc: HashMap::new(),
             faults: HashMap::new(),
             disk: HashMap::new(),
+            last_single: HashMap::new(),
             events: Vec::new(),
             unattributed: 0,
+            dropped: 0,
+        }
+    }
+
+    /// Keeps an event unless the cap is reached; returns its index.
+    fn push(&mut self, e: SysEvent) -> Option<usize> {
+        if self.events.len() >= MAX_EVENTS {
+            self.dropped += 1;
+            return None;
+        }
+        self.events.push(e);
+        Some(self.events.len() - 1)
+    }
+
+    /// A single long DPC/ISR or slow disk I/O, joined onto the previous one
+    /// from the same source when it starts within [`COALESCE_MS`] of its end.
+    fn single(&mut self, kind: &'static str, subject: String, start: u64, dur: u64, mag: f64) {
+        let gap = self.ticks_ms(COALESCE_MS);
+        let key = (kind, subject);
+        if let Some(e) = self.last_single.get(&key).map(|&i| &mut self.events[i]) {
+            let end = e.qpc + e.duration_ticks;
+            if start >= e.qpc && start <= end + gap {
+                e.duration_ticks = end.max(start + dur) - e.qpc;
+                e.magnitude = e.magnitude.max(mag);
+                return;
+            }
+        }
+        let ev = SysEvent {
+            qpc: start,
+            duration_ticks: dur,
+            kind: kind.into(),
+            subject: key.1.clone(),
+            magnitude: mag,
+        };
+        if let Some(i) = self.push(ev) {
+            self.last_single.insert(key, i);
         }
     }
 
@@ -245,13 +294,7 @@ impl Collector {
         };
         let us = self.us(dur);
         if us > DPC_SINGLE_US {
-            self.events.push(SysEvent {
-                qpc: initial,
-                duration_ticks: dur,
-                kind: kind.into(),
-                subject: driver.clone(),
-                magnitude: us,
-            });
+            self.single(kind, driver.clone(), initial, dur, us);
         }
         let span = self.ticks_ms(DPC_BUCKET_MS);
         let bucket_start = initial - initial % span.max(1);
@@ -276,7 +319,7 @@ impl Collector {
     fn emit_bucket(&mut self, key: &(String, bool), b: Bucket) {
         let us = self.us(b.total_ticks);
         if us > DPC_BUCKET_TOTAL_US {
-            self.events.push(SysEvent {
+            self.push(SysEvent {
                 qpc: b.start,
                 duration_ticks: self.ticks_ms(DPC_BUCKET_MS),
                 kind: if key.1 { "isr" } else { "dpc" }.into(),
@@ -298,30 +341,29 @@ impl Collector {
         };
         let span = self.ticks_ms(FAULT_WINDOW_MS);
         let window = e.qpc - e.qpc % span.max(1);
-        let entry = self.faults.entry(pid).or_insert((window, 0));
-        if entry.0 != window {
-            *entry = (window, 0);
-        }
-        entry.1 += 1;
-        if entry.1 == FAULT_COUNT {
+        let (count, emitted) = {
+            let entry = self.faults.entry(pid).or_insert((window, 0, None));
+            if entry.0 != window {
+                *entry = (window, 0, None);
+            }
+            entry.1 += 1;
+            (entry.1, entry.2)
+        };
+        if count == FAULT_COUNT {
             let subject = self.process_name(pid);
-            self.events.push(SysEvent {
+            let idx = self.push(SysEvent {
                 qpc: window,
                 duration_ticks: span,
                 kind: "hard_fault".into(),
                 subject,
                 magnitude: FAULT_COUNT as f64,
             });
-        } else if entry.1 > FAULT_COUNT {
-            // Count the rest into the event already emitted for this window.
-            if let Some(ev) = self
-                .events
-                .iter_mut()
-                .rev()
-                .find(|x| x.kind == "hard_fault" && x.qpc == window)
-            {
-                ev.magnitude += 1.0;
+            if let Some(entry) = self.faults.get_mut(&pid) {
+                entry.2 = idx;
             }
+        } else if let Some(i) = emitted {
+            // Count the rest into this process's event for the window.
+            self.events[i].magnitude += 1.0;
         }
     }
 
@@ -342,13 +384,7 @@ impl Collector {
         let start = e.qpc.saturating_sub(resp);
         let ms = resp as f64 * 1000.0 / self.freq as f64;
         if ms > DISK_SLOW_MS {
-            self.events.push(SysEvent {
-                qpc: start,
-                duration_ticks: resp,
-                kind: "disk_io".into(),
-                subject: subject.clone(),
-                magnitude: ms,
-            });
+            self.single("disk_io", subject.clone(), start, resp, ms);
         }
         let Some(pid) = pid.filter(|&p| p != self.game_pid) else {
             return;
@@ -362,7 +398,7 @@ impl Collector {
         let before = entry.1;
         entry.1 += size as u64;
         if before <= DISK_BURST_BYTES && entry.1 > DISK_BURST_BYTES {
-            self.events.push(SysEvent {
+            self.push(SysEvent {
                 qpc: window,
                 duration_ticks: span,
                 kind: "disk_io".into(),
@@ -595,6 +631,64 @@ mod tests {
         );
         assert_eq!(events[0].magnitude, 6.0);
         assert_eq!(events[1].qpc, 20_000_000); // start = completion − response time
+    }
+
+    #[test]
+    fn dpc_bursts_are_joined_and_events_are_capped() {
+        let mut c = collector();
+        let netw = 0xfffff800_10000500;
+        // 1 ms DPCs every 5 ms for 1 s: one joined event, not 200.
+        for i in 0..200u64 {
+            let s = 10_000_000 + i * 50_000;
+            c.feed(&ev(PERF_INFO, 68, s + 10_000, &dpc(s, netw)));
+        }
+        // One more 100 ms later: a separate event.
+        c.feed(&ev(PERF_INFO, 68, 21_010_000, &dpc(21_000_000, netw)));
+        let singles: Vec<(u64, u64)> = c
+            .events
+            .iter()
+            .filter(|e| e.duration_ticks != 100_000) // leave out 10 ms bucket events
+            .map(|e| (e.qpc, e.duration_ticks))
+            .collect();
+        assert_eq!(singles, [(10_000_000, 9_960_000), (21_000_000, 10_000)]);
+
+        let mut c = collector();
+        for i in 0..(MAX_EVENTS as u64 + 5) {
+            let s = i * 1_000_000; // 100 ms apart: never joined
+            c.feed(&ev(PERF_INFO, 68, s + 10_000, &dpc(s, netw)));
+        }
+        assert_eq!(c.events.len(), MAX_EVENTS);
+        assert_eq!(c.dropped, 5);
+    }
+
+    #[test]
+    fn hard_faults_count_toward_their_own_process() {
+        let mut c = collector();
+        let mut t = Vec::new();
+        t.extend(100u32.to_le_bytes());
+        t.extend(8u32.to_le_bytes());
+        c.feed(&ev(THREAD, 1, 0, &t));
+        let fault = |tid: u32| {
+            let mut d = vec![0u8; 32];
+            d.extend(tid.to_le_bytes());
+            d.extend(4096u32.to_le_bytes());
+            d
+        };
+        // Both processes reach five faults in the same window; then the first faults more.
+        for tid in [7, 8] {
+            for i in 0..5u64 {
+                c.feed(&ev(PAGE_FAULT, 32, 5_000_000 + i, &fault(tid)));
+            }
+        }
+        for i in 0..3u64 {
+            c.feed(&ev(PAGE_FAULT, 32, 5_000_100 + i, &fault(7)));
+        }
+        let (events, _) = c.finish();
+        let got: Vec<(&str, f64)> = events
+            .iter()
+            .map(|e| (e.subject.as_str(), e.magnitude))
+            .collect();
+        assert_eq!(got, [("stress.exe", 8.0), ("pid 100", 5.0)]);
     }
 
     #[test]

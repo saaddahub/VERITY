@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Notice, type ServiceState, type Session, type SessionStatus, type SystemInfo } from "./api.ts";
+import { api, type Notice, type ServiceState, type SessionRow, type SessionStatus, type SystemInfo } from "./api.ts";
 import { Icon, Logo, type IconName } from "./ui.tsx";
 import { Checkup } from "./screens/Checkup.tsx";
 import { Sessions } from "./screens/Sessions.tsx";
@@ -11,7 +11,7 @@ export type Page = { name: "checkup" } | { name: "sessions"; id?: number } | { n
 export interface Data {
   service: ServiceState | null;
   info: SystemInfo | null;
-  sessions: Session[] | null;
+  sessions: SessionRow[] | null;
   error: string | null;
   refresh: () => void;
   session: SessionStatus | null;
@@ -51,7 +51,7 @@ export function App() {
   };
   const [service, setService] = useState<ServiceState | null>(null);
   const [info, setInfo] = useState<SystemInfo | null>(null);
-  const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {

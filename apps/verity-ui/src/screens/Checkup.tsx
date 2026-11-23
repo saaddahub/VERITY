@@ -88,7 +88,7 @@ export function Checkup({ data, go }: { data: Data; go: (p: Page) => void }) {
             { label: "Average", value: last.summary.stats.avg_fps.toFixed(1), unit: "FPS" },
             { label: "Slowest 1%", value: last.summary.stats.low_1pct_fps.toFixed(1), unit: "FPS" },
             { label: "Slowest 0.1%", value: last.summary.stats.low_01pct_fps.toFixed(1), unit: "FPS" },
-            { label: "Stutters", value: String(last.summary.stats.hitch_groups.length) },
+            { label: "Stutters", value: String(last.hitches.count) },
           ]}
         />
       )}
