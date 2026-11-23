@@ -8,7 +8,7 @@ is next. Then follow `CLAUDE.md` (or `AGENTS.md` for Codex). Details live in
 **Keep it current:** at the end of every session, update "Last session",
 "Done" and "Next" below, then commit it with the work.
 
-Last updated: 2026-11-17
+Last updated: 2026-11-17 (evening)
 
 ## What Verity is
 
@@ -36,35 +36,43 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
   0.1% lows, stutter (hitch) detection, GPU attribution, SQLite sessions, CSV
   export. Real-game check: Forza Horizon 5, 68.0 FPS average / 40.1 1% low,
   matching the owner's in-game counter.
-- **Desktop app v0** (merged to `main` via PR #1, 2026-11-16): Checkup (verdict +
-  garage-style inspection sheet), Sessions (frame-time trace with stutter
-  marks), Record (pick an app using the GPU), Install/Start service with one
-  admin prompt, compact layout. Design: "Workshop Inspection Report", contract
-  in `.impeccable/surfaces/apps-verity-ui.md`. The finish reviewer's 8 fixes are
-  applied.
+- **Desktop app v0** (merged to `main` via PR #1, 2026-11-16): Checkup, Sessions,
+  Record, one-prompt service setup. Design "Workshop Inspection Report",
+  contract in `.impeccable/surfaces/apps-verity-ui.md`.
+- **M4 Session Mode and M5 Frame Story, built** (2026-11-17, branch
+  `m4-m5-session-story`, not merged, not pushed): game library (finds the 3
+  Steam games on the laptop), automatic recording of each game session, panic
+  hotkey Ctrl+Alt+Shift+V and tray, Games screen; Frame Story matches each
+  stutter to driver work, disk, memory, background CPU/GPU, CPU limits,
+  charger, Defender, Windows Update and program starts, with lift and
+  significance; shareable HTML report. 5 admin end-to-end tests pass
+  (`tools/m4m5-admin.ps1`): planted cause found 20 of 20, decoy not reported,
+  panic in 1.8 ms, overhead 0.29% of a 1% budget. Details in
+  `docs/notes/STATUS.md`; departures from the spec in `docs/notes/decisions.md`.
 - **Scope broadened** to everyday PC use (`docs/01-vision.md` pillar 6).
 - Project report PDF for the co-developer: `docs/report/` (kept local, not in git).
 
 ## Next (in order)
 
-1. **Finish the app's design review.** The reviewer still has to sign off the
-   8 fixes: retake two 375-px-wide screenshots (Checkup and Sessions #4) at 2x
-   into `.impeccable/review/`, send all six captures back, then write
-   `DESIGN.md` with the impeccable documenter.
-2. **Record the "not fully offline" decision.** On 2026-11-16 the owner said
-   Verity is not meant to be fully offline. Update `docs/09-safety.md`,
-   `docs/01-vision.md` (non-goals) and `PRODUCT.md`, and add an entry to
-   `docs/notes/decisions.md`.
-3. **FreeLLMAPI fallback for Claude Code.** Waiting on the owner: install the
-   FreeLLMAPI router (Microsoft Store app, serves `http://localhost:3001`) and
-   add free provider keys. Then: install the `claude` CLI and launch it with
-   `npx freellmapi launch`; optionally add the router's `/mcp` as an MCP tool.
-4. **Verity chat assistant** in the app, powered by FreeLLMAPI (owner request).
-5. **M2, Doctor**: diagnostic rules (throttling, charger, background load, power
-   mode), written for any PC. Includes bottleneck classification. The UI's
-   quick checks in `apps/verity-ui/src/checks.ts` move into the service then.
-6. **Desktop smoothness** (`record --desktop`): the probe showed `dwm.exe` has
-   long idle gaps, so it needs its own metric before it can ship.
+1. **Merge with the co-developer's M2 and M3** (they were pushing them on
+   2026-11-17 evening). Then: implement `SessionActions` in
+   `apps/verity-service/src/session_mode.rs` with M3's actions (background
+   EcoQoS/CPU sets for new processes, revert at session end), add Frame Story
+   rules D030–D034 to M2's Doctor, and finish the M4/M5 criteria that need them.
+2. **Owner's manual checks for M4/M5:** sleep the laptop during a session;
+   play a real game 15 minutes with Session Mode on (audio, voice chat, capture
+   software normal); open that session's Frame Story and judge its top cause.
+3. **Finish the app's design review.** Retake two 375-px screenshots (Checkup and
+   Sessions #4) at 2x into `.impeccable/review/`, include the new Games screen
+   and Frame Story panel, then write `DESIGN.md` with the impeccable documenter.
+4. **Record the "not fully offline" decision** (owner, 2026-11-16) in
+   `docs/09-safety.md`, `docs/01-vision.md`, `PRODUCT.md` (it still says "Fully
+   offline") and `docs/notes/decisions.md`.
+5. **FreeLLMAPI fallback for Claude Code.** Waiting on the owner to install the
+   FreeLLMAPI router and add free provider keys.
+6. **Verity chat assistant** in the app, powered by FreeLLMAPI (owner request).
+7. **Desktop smoothness** (`record --desktop`): `dwm.exe` has long idle gaps, so
+   it needs its own metric before it can ship.
 
 ## Open questions for the owner
 
@@ -78,7 +86,11 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
 - UI preview in a browser with sample data: `npm --prefix apps/verity-ui run dev`, open `http://localhost:1420`.
 - PresentMon is not in git: see `tools/presentmon/README.md`.
 
-## Last session (2026-11-14 to 2026-11-17)
+## Last session (2026-11-17)
 
-Built M0 and M1, the desktop app, the README and the report; verified M1 on
-Forza; merged the app; started the FreeLLMAPI setup (waiting on the owner).
+The owner asked for M4 and M5 while the co-developer builds M2 and M3. Built
+both on branch `m4-m5-session-story` (desktop app first: Games screen, Frame
+Story panel, notices, tray). Probes verified the ETW payloads, Steam library and
+counters on the laptop. The admin tests found one real bug (program-start
+events timed on arrival, up to a second late); fixed and retested. Not merged
+or pushed: wait for the co-developer's M2/M3, then merge and wire M3 actions in.

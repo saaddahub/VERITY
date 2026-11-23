@@ -5,3 +5,5 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+verity-core.workspace = true
+serde.workspace = true

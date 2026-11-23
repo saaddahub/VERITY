@@ -7,6 +7,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+use windows::Win32::System::SystemInformation::GetSystemTimePreciseAsFileTime;
 use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
 
 use crate::{from_wide, hresult};
@@ -25,6 +26,13 @@ pub fn qpc_freq() -> u64 {
     // SAFETY: `f` is a valid out-parameter; the call cannot fail on supported Windows.
     let _ = unsafe { QueryPerformanceFrequency(&mut f) };
     f as u64
+}
+
+/// Current UTC time as a FILETIME (100 ns since 1601).
+pub fn filetime_now() -> u64 {
+    // SAFETY: no preconditions.
+    let ft = unsafe { GetSystemTimePreciseAsFileTime() };
+    (ft.dwHighDateTime as u64) << 32 | ft.dwLowDateTime as u64
 }
 
 /// The real `ProcessApi`: a Toolhelp snapshot, which opens no process.

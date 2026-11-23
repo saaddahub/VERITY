@@ -34,7 +34,9 @@ A closed loop no neighbouring tool offers: measure, attribute (each stutter matc
 ## Capabilities and Constraints
 
 - Working today: service status, system info (Windows build, CPU and core classes, GPUs, displays with refresh, power), recording any app that draws with the GPU (average FPS, 1% and 0.1% lows, pacing, hitches, GPU used, Verity's overhead), session list, session detail, CSV export.
-- Planned, not yet built: Doctor findings, reversible actions and the journal, Session Mode, Frame Story, the Lab, desktop smoothness capture. The UI must not show or imply these as working.
+- Session Mode (M4, 2026-11-17): game library scan (Steam, Epic, GOG, Xbox, manual), automatic recording of each game session, panic hotkey Ctrl+Alt+Shift+V and tray, "Is X a game?" prompt. It records only; it changes no settings until the M3 actions land.
+- Frame Story (M5, 2026-11-17): each stutter matched against driver work, disk, memory, background CPU and GPU use, CPU limits, charger, Defender, Windows Update and program starts, with lift and significance; in-game stutters named as such; shareable HTML report.
+- Planned, not yet built: Doctor findings, reversible actions and the journal, the Lab, desktop smoothness capture. The UI must not show or imply these as working.
 - Recording needs the service; installing the service needs one Windows admin prompt.
 - Never stored or shown: window titles, command lines, personal data.
 - Terminology: session, hitch (stutter), 1% low, frame time, capture.

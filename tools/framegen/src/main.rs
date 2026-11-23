@@ -5,14 +5,15 @@
 //! Test tooling: its Win32 calls live here, not in `verity-sys` (see
 //! docs/notes/decisions.md).
 //!
-//! shortcut: `--gpu-load` and `--hitch-on-event` from docs/11-roadmap.md are not
-//! implemented; add them when M2 (D050) and M5 (planted causes) need them.
+//! shortcut: `--gpu-load` from docs/11-roadmap.md is not implemented; add it
+//! when M2 (rule D050) needs it.
 
 use std::io::Write;
 use std::process::ExitCode;
 use std::str::FromStr;
 
 use windows::core::w;
+use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
@@ -27,6 +28,7 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, PeekMessageW, PostQuitMessage,
     RegisterClassW, TranslateMessage, CW_USEDEFAULT, MSG, PM_REMOVE, WINDOW_EX_STYLE, WM_DESTROY,
@@ -34,7 +36,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 const USAGE: &str = "usage: framegen [--fps <n> | --uncapped] [--cost-ms <x>]
-                [--hitch-at <s1,s2,...> --hitch-ms <x>]
+                [--hitch-at <s1,s2,...> --hitch-ms <x>] [--hitch-on-event <name>]
                 [--duration <s>] [--log <path>]
 defaults: --fps 60, --duration 10, --log framegen-truth.csv";
 
@@ -45,6 +47,8 @@ struct Config {
     cost_ms: f64,
     hitch_at_s: Vec<f64>,
     hitch_ms: f64,
+    /// Named event (Local\ namespace): each signal plants one hitch.
+    hitch_event: Option<String>,
     duration_s: f64,
     log: String,
 }
@@ -55,6 +59,7 @@ fn parse(args: &[String]) -> Result<Config, String> {
         cost_ms: 0.0,
         hitch_at_s: Vec::new(),
         hitch_ms: 50.0,
+        hitch_event: None,
         duration_s: 10.0,
         log: "framegen-truth.csv".into(),
     };
@@ -74,6 +79,16 @@ fn parse(args: &[String]) -> Result<Config, String> {
             "--hitch-ms" => c.hitch_ms = num()?,
             "--duration" => c.duration_s = num()?,
             "--log" => c.log = value.clone(),
+            "--hitch-on-event" => {
+                if value.is_empty()
+                    || !value
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+                {
+                    return Err("--hitch-on-event takes a plain name".into());
+                }
+                c.hitch_event = Some(value.clone());
+            }
             "--hitch-at" => {
                 c.hitch_at_s = value
                     .split(',')
@@ -232,6 +247,17 @@ fn run(c: &Config) -> Result<u64, Box<dyn std::error::Error>> {
     let mut next_frame = start;
     let mut next_hitch = 0;
     let mut frames = 0u64;
+    let hitch_event = match &c.hitch_event {
+        Some(name) => {
+            let full: Vec<u16> = format!(r"Local\{name}")
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            // SAFETY: `full` is NUL-terminated; auto-reset, initially unsignaled.
+            Some(unsafe { CreateEventW(None, false, false, windows::core::PCWSTR(full.as_ptr())) }?)
+        }
+        None => None,
+    };
 
     'frames: loop {
         let mut msg = MSG::default();
@@ -255,6 +281,14 @@ fn run(c: &Config) -> Result<u64, Box<dyn std::error::Error>> {
                 writeln!(log, "hitch,{now},{}", c.hitch_ms)?;
                 spin_until(now + ticks(c.hitch_ms));
                 next_hitch += 1;
+            }
+        }
+        if let Some(evt) = hitch_event {
+            // SAFETY: `evt` is the event created above; a zero timeout only polls it.
+            if unsafe { WaitForSingleObject(evt, 0) } == WAIT_OBJECT_0 {
+                let now = qpc();
+                writeln!(log, "hitch,{now},{}", c.hitch_ms)?;
+                spin_until(now + ticks(c.hitch_ms));
             }
         }
         if c.cost_ms > 0.0 {
@@ -319,5 +353,13 @@ mod tests {
         assert!(parse(&args("--fps 0")).is_err());
         assert!(parse(&args("--nope 1")).is_err());
         assert!(parse(&args("--hitch-at 1,x")).is_err());
+        assert!(parse(&args("--hitch-on-event bad/name")).is_err());
+        assert_eq!(
+            parse(&args("--hitch-on-event vt-1"))
+                .unwrap()
+                .hitch_event
+                .as_deref(),
+            Some("vt-1")
+        );
     }
 }

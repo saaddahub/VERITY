@@ -7,11 +7,11 @@ related_targets: []
 
 # Surface brief: Verity desktop app (v0)
 
-Scope: the Tauri desktop app shell with three screens, Checkup (home), Sessions, Record. Visitor mode: Operate.
+Scope: the Tauri desktop app shell with four screens, Checkup (home), Games (Session Mode and the library, added 2026-11-17), Sessions (with Frame Story in the detail), Record. Visitor mode: Operate.
 
 Audience and job: gamers and everyday PC users equally, mixed technical level. Job: see the plain answer about the last recording and this PC, then record again or open the proof. Both a full window and a compact window (narrow) must work.
 
-Constraints: no AI slop, no gamer RGB, no sterile dashboard, no hacker terminal, no walls of text (user, 2026-11-15). Unbuilt features (Doctor, actions, Frame Story, Lab) stay invisible. Answer first, numbers one click away.
+Constraints: no AI slop, no gamer RGB, no sterile dashboard, no hacker terminal, no walls of text (user, 2026-11-15). Unbuilt features (Doctor, actions, Lab) stay invisible. Answer first, numbers one click away.
 
 Decision: the user declined to choose on the decision page ("forget the choosing"), so the rolled direction stands.
 

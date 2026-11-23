@@ -1,6 +1,11 @@
 //! SQLite storage. The service owns the database; clients never open it.
 
 pub mod codec;
+pub mod events;
+pub mod games;
+
+pub use events::SessionBounds;
+pub use games::{GameRow, NewGame, SyncResult};
 
 use std::path::Path;
 
@@ -9,7 +14,10 @@ use verity_core::metrics::Frame;
 use verity_core::telemetry::{CaptureGap, SessionSummary};
 
 /// Numbered migrations; `PRAGMA user_version` records how many have run.
-const MIGRATIONS: [&str; 1] = [include_str!("migrations/001_initial.sql")];
+const MIGRATIONS: [&str; 2] = [
+    include_str!("migrations/001_initial.sql"),
+    include_str!("migrations/002_session_mode.sql"),
+];
 /// Roughly this much play time per frame chunk.
 const CHUNK_SECONDS: u64 = 10;
 
@@ -46,7 +54,7 @@ pub struct SessionRow {
 }
 
 pub struct Store {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl Store {

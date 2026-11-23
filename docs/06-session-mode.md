@@ -30,7 +30,7 @@ A process becomes a **candidate** when all hold for 10 seconds:
 
 A candidate that is not in the library triggers one notification: "Is `<name>` a game? Yes / No / Never ask". The answer is stored.
 
-Process starts come from the kernel trace `PROCESS` events (a light always-on trace session with only that flag) rather than polling.
+Process starts come from the Microsoft-Windows-Kernel-Process provider on a light always-on real-time session (`VerityProc`), not from polling. It carries the full image path and the creation time; the kernel `PROCESS` class truncates image names to 15 characters. Verified on Windows 11 25H2 (build 26200); see `docs/notes/decisions.md`.
 
 ## State machine
 

@@ -87,7 +87,7 @@ GPU Engine instance names have the form `pid_<pid>_luid_<high>_<low>_phys_<n>_en
 
 One private system trace session named `VerityKernel`, using the system logger mode available since Windows 8 (`EVENT_TRACE_SYSTEM_LOGGER_MODE`) so Verity does not fight other tools for the single legacy "NT Kernel Logger". QPC clock. Real-time mode, no file.
 
-The session runs all the time with only the `PROCESS` flag, which is what Session Mode uses to see games start (`06-session-mode.md`). When a Standard or Deep capture begins, the extra flags are switched on by updating the running session (`ControlTraceW` with `EVENT_TRACE_CONTROL_UPDATE`) **(verify)**, and switched off again when the capture ends. If updating flags in place does not work, stop and restart the session with the new flag set.
+The session runs only during Standard and Deep captures, with `THREAD`, `IMAGE_LOAD`, `DPC`, `INTERRUPT`, `MEMORY_HARD_FAULTS` and `DISK_IO`. Session Mode sees games start through the Microsoft-Windows-Kernel-Process provider instead (`06-session-mode.md`). Updating flags in place with `EVENT_TRACE_CONTROL_UPDATE` was verified to work (probe `etw`, 2026-11-17) and is kept for Deep. A session orphaned by a crash is stopped when the service starts. Events are consumed with `PROCESS_TRACE_MODE_RAW_TIMESTAMP`, so header times are QPC ticks on the same clock as PresentMon and as the DPC `InitialTime` field.
 
 | Flag | Used for |
 |---|---|
@@ -98,7 +98,7 @@ The session runs all the time with only the `PROCESS` flag, which is what Sessio
 | `DISK_IO` | disk read/write latency and size by process |
 | `CSWITCH` (Deep only) | who ran on which core when; ready-thread contention for the game |
 
-DPC/ISR decoding **(verify)** opcodes: the PerfInfo event class carries ISR, DPC, timer DPC and threaded DPC events with an initial time and a routine address. Duration = event timestamp − initial time. Attribute the routine address to a driver using the kernel module map built from image-load rundown events (base address, size, file name); fall back to `EnumDeviceDrivers`.
+DPC/ISR decoding **(verify)** opcodes: the PerfInfo event class carries ISR, DPC, timer DPC and threaded DPC events with an initial time and a routine address. Duration = event timestamp − initial time. Attribute the routine address to a driver using the kernel module map built from image-load rundown events (base address, size, file name; kernel modules carry process id 0). Verified 2026-11-17: opcodes 66 threaded DPC, 67 ISR, 68 DPC, 69 timer DPC, 50 ISR (MSI); the rundown at flag enable lists every kernel module, so `EnumDeviceDrivers` is not needed. Disk I/O and hard-fault events carry process id -1 in the header; they are attributed through their thread id and the `THREAD` rundown.
 
 To keep volume low: in the callback, aggregate DPC/ISR into 10 ms buckets per driver (count, total, max) and additionally emit an individual event for any single DPC or ISR longer than 500 µs.
 

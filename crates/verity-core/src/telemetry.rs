@@ -127,8 +127,23 @@ pub struct SessionSummary {
     pub overhead_budget_pct: f64,
 }
 
+/// One qualifying system event for Frame Story (docs/07-frame-story.md step 2),
+/// stored as an `events` row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SysEvent {
+    pub qpc: u64,
+    pub duration_ticks: u64,
+    pub kind: String,
+    /// What to blame: driver file, process image name, task name, ...
+    pub subject: String,
+    /// Kind-specific size (µs of DPC time, MB moved, CPU cores, ...).
+    pub magnitude: f64,
+}
+
 /// Light-mode budget from docs/03-telemetry.md.
 pub const LIGHT_OVERHEAD_BUDGET_PCT: f64 = 0.3;
+/// Standard-mode budget (kernel trace, event logs and 4 Hz sampler on top).
+pub const STANDARD_OVERHEAD_BUDGET_PCT: f64 = 1.0;
 
 #[cfg(test)]
 mod tests {

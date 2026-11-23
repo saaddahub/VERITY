@@ -66,6 +66,69 @@ export interface GpuApp {
   name: string;
   gpu_pct: number;
 }
+export interface GameRef {
+  id: number | null;
+  name: string;
+  exe: string;
+}
+export type SessionState =
+  | { state: "idle"; enabled: boolean }
+  | { state: "arming"; enabled: boolean; game: GameRef; proc: { pid: number }; frames?: number }
+  | { state: "active"; enabled: boolean; game: GameRef; proc: { pid: number }; frames?: number; exited_at: number | null };
+export interface Notice {
+  id: number;
+  kind: "info" | "session_end" | "ask_game";
+  text: string;
+  session_id?: number;
+  exe?: string;
+}
+export interface SessionStatus {
+  status: SessionState;
+  notices: Notice[];
+  capabilities: string[];
+}
+export interface Game {
+  id: number;
+  name: string;
+  exe_path: string;
+  source: "steam" | "epic" | "gog" | "xbox" | "manual";
+  launcher_id: string | null;
+}
+export interface Cause {
+  kind: string;
+  subject: string;
+  label: "likely" | "possible";
+  k: number;
+  n: number;
+  lift: number;
+  p: number;
+  excess_share: number;
+  remedy: { type: string; id: string };
+}
+export interface StoryEvent {
+  qpc: number;
+  duration_ticks: number;
+  kind: string;
+  subject: string;
+  magnitude: number;
+}
+export interface Story {
+  hitch_groups: number;
+  hitch_rate_per_min: number;
+  causes: Cause[];
+  unexplained: { in_game_cpu: number; in_game_gpu: number; unknown: number };
+  capture_mode: string;
+  caveats: string[];
+  groups: { start_qpc: number; end_qpc: number; worst_ms: number; excess_ms: number; class: string }[];
+  pairs_tested: number;
+}
+export interface StoryData {
+  session_id: number;
+  story: Story;
+  events: StoryEvent[];
+  events_truncated: boolean;
+  qpc_freq: number;
+}
 export type ServiceState =
   | { state: "running" }
   | { state: "stopped" }
@@ -95,4 +158,16 @@ export const api = {
   session: (id: number) => invoke<Session>("session_get", { id }),
   trace: (id: number, chunks: number) => invoke<Trace>("session_trace", { id, chunks }),
   exportCsv: (id: number, chunks: number) => invoke<string>("export_csv", { id, chunks }),
+  sessionStatus: (since: number) => invoke<SessionStatus>("session_status", { since }),
+  sessionEnable: (on: boolean) => invoke<SessionStatus>("session_enable", { on }),
+  sessionStop: () => invoke<SessionStatus>("session_stop"),
+  sessionPanic: () => invoke<SessionStatus>("session_panic"),
+  games: () => invoke<Game[]>("games_list"),
+  gamesScan: () => invoke<Game[]>("games_scan"),
+  gamesAdd: (exePath: string) => invoke<{ id: number }>("games_add", { exePath }),
+  gamesRemove: (id: number) => invoke<unknown>("games_remove", { id }),
+  gamesAnswer: (exe: string, answer: "game" | "not_game" | "never") =>
+    invoke<unknown>("games_answer", { exe, answer }),
+  story: (id: number) => invoke<StoryData>("story_get", { id }),
+  storyExport: (id: number) => invoke<string>("story_export", { id }),
 };

@@ -6,13 +6,19 @@ import { markLabel, type Check } from "./checks.ts";
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** Icons are authored SVG in one 1.5px stroke. */
-export function Icon({ name }: { name: "checkup" | "sessions" | "record" | "refresh" | "download" }) {
+export type IconName = "checkup" | "sessions" | "record" | "games" | "refresh" | "download" | "stop" | "undo" | "close";
+
+export function Icon({ name }: { name: IconName }) {
   const p = {
     checkup: "M4 5h12M4 10h12M4 15h7M14 14l2 2 3-4",
     sessions: "M4 5h13M4 10h13M4 15h13",
     record: "M10 4a6 6 0 1 0 0 12a6 6 0 1 0 0-12zM10 8a2 2 0 1 0 0 4a2 2 0 1 0 0-4z",
     refresh: "M15.5 7A6 6 0 1 0 16 12M16 4v3.5h-3.5",
     download: "M10 4v9M6 9.5l4 4 4-4M4.5 16h11",
+    games: "M6.5 6.5h7a4 4 0 0 1 3.9 4.8l-.6 2.8a1.9 1.9 0 0 1-3.3.8L12 13H8l-1.5 1.9a1.9 1.9 0 0 1-3.3-.8l-.6-2.8a4 4 0 0 1 3.9-4.8zM6.5 9v2.5M5.25 10.25h2.5M13 10h.01M14.5 11.5h.01",
+    stop: "M6 6h8v8H6z",
+    undo: "M7.5 6 4 9.5 7.5 13M4.5 9.5h7a4.5 4.5 0 0 1 0 9H9",
+    close: "M6 6l8 8M14 6l-8 8",
   }[name];
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
