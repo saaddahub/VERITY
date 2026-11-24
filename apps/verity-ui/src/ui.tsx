@@ -6,7 +6,7 @@ import { markLabel, type Check } from "./checks.ts";
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** Icons are authored SVG in one 1.5px stroke. */
-export type IconName = "checkup" | "sessions" | "record" | "games" | "refresh" | "download" | "stop" | "undo" | "close";
+export type IconName = "checkup" | "sessions" | "record" | "games" | "storage" | "refresh" | "download" | "stop" | "undo" | "close";
 
 export function Icon({ name }: { name: IconName }) {
   const p = {
@@ -17,6 +17,7 @@ export function Icon({ name }: { name: IconName }) {
     download: "M10 4v9M6 9.5l4 4 4-4M4.5 16h11",
     games: "M6.5 6.5h7a4 4 0 0 1 3.9 4.8l-.6 2.8a1.9 1.9 0 0 1-3.3.8L12 13H8l-1.5 1.9a1.9 1.9 0 0 1-3.3-.8l-.6-2.8a4 4 0 0 1 3.9-4.8zM6.5 9v2.5M5.25 10.25h2.5M13 10h.01M14.5 11.5h.01",
     stop: "M6 6h8v8H6z",
+    storage: "M4 11.5h12a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2.5a1 1 0 0 1 1-1zM4.2 11.5 6 4.5h8l1.8 7M13.5 13.75h.01",
     undo: "M7.5 6 4 9.5 7.5 13M4.5 9.5h7a4.5 4.5 0 0 1 0 9H9",
     close: "M6 6l8 8M14 6l-8 8",
   }[name];

@@ -342,8 +342,9 @@ input { caret-color: var(--spot); }
 
 /* ---------- compact window ---------- */
 @media (max-width: 860px) {
-  .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .rail { flex-direction: row; align-items: center; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--rule-soft); gap: 4px; }
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  /* Five screens do not fit a phone-width row: the rail scrolls rather than widening the page. */
+  .rail { flex-direction: row; align-items: center; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--rule-soft); gap: 4px; overflow-x: auto; }
   .brand { padding: 0 10px 0 4px; font-size: 18px; }
   .brand span { display: none; }
   .nav { padding: 8px 10px; }

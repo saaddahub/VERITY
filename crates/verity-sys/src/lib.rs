@@ -5,14 +5,17 @@ pub mod agent;
 pub mod elevate;
 pub mod etw;
 pub mod evtlog;
+pub mod files;
 pub mod games;
 pub mod paths;
 pub mod pdh;
 pub mod pipe;
 pub mod process;
 mod security;
+pub mod shellops;
 pub mod story_sampler;
 mod system;
+pub mod wmi;
 
 pub use system::{displays, WinSystemInfo};
 

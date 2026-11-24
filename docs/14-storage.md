@@ -38,16 +38,21 @@ names: drive health counters and the Optimize Drives call.
 
 ## Scanning
 
-- v1: parallel folder walk with `GetFileInformationByHandleEx` and
-  `FileIdBothDirectoryInfo` (names, sizes and IDs in batches), falling back to
-  `FindFirstFileExW` with `FindExInfoBasic` and `FIND_FIRST_EX_LARGE_FETCH`.
-  Pick by a probe on the dev laptop **(verify)** speed.
+- v1: parallel folder walk (one worker per logical processor) with
+  `GetFileInformationByHandleEx` and `FileIdBothDirectoryInfo`: names,
+  allocation sizes and file IDs in 64 KiB batches. Probed on the dev laptop
+  (`tools/probes` `storage`): 1.6 million entries on C: in 14 to 40 s with 12
+  threads (171 s with one), about 155 MB of memory.
 - Sizes are allocation sizes (space actually used). Hard links count once (file
   ID set). Junctions and symlinks are not followed. OneDrive "online-only"
   files count as zero local space and are marked. Folders the user cannot read
   are listed as "not readable", never retried as admin.
 - Progress and cancel; a full scan of the system drive targets under 60 s on
-  the dev laptop's SSD.
+  the dev laptop's SSD (release build).
+- What the user's account cannot open (restore points, other accounts,
+  protected folders: 49 GB of 373 GB used on the dev laptop) is shown as one
+  "Not visible to your account" line, the drive's used space minus what was
+  counted, never guessed or hidden.
 - Results stay in the app's memory. File names are never written to Verity's
   database or logs (`09-safety.md` §7).
 - Later (not v1): an MFT fast path needs an elevated helper and per-user
@@ -102,11 +107,11 @@ full, Doctor raises a "drive nearly full" finding pointing here.
 | Item | Source | Shown as |
 |---|---|---|
 | Health status | `MSFT_PhysicalDisk.HealthStatus` | Healthy, Warning, Unhealthy |
-| Wear | `MSFT_StorageReliabilityCounter.Wear` | "18% of rated life used", or "not reported" |
+| Wear | `MSFT_StorageReliabilityCounter.Wear`, reached only through each `MSFT_PhysicalDisk`'s association (a plain `SELECT` returns no rows, even as SYSTEM) | "18% worn"; a 0 is shown with the note that some drives always report 0 |
 | Temperature | Same class, `Temperature` and `TemperatureMax` | °C, with the drive's own limit |
 | Errors | Read and write error totals | Any non-zero total is a warning |
 | Last optimized | Optimize Drives history **(verify)** where it is readable | Date |
-| Optimize now | `MSFT_Volume.Optimize` on a volume from the service's own volume list, never a client string | One-shot maintenance; nothing to revert |
+| Optimize now | `MSFT_Volume.Optimize` on a volume from the service's own volume list, never a client string, called by its `__RELPATH` with `ReTrim` for an SSD or `Defrag` for an HDD (the method does nothing without an operation; the drive type comes from volume, partition, physical disk). An unknown drive type is refused with a pointer to Windows' Optimize Drives | One-shot maintenance; nothing to revert |
 
 ## IPC (service side only)
 

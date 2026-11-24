@@ -1,0 +1,10 @@
+[package]
+name = "verity-storage"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+verity-sys.workspace = true
+serde.workspace = true
+sha2 = "0.10"

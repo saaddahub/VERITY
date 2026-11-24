@@ -4,6 +4,8 @@
 // A GUI app: never open a console window, in debug builds too.
 #![windows_subsystem = "windows"]
 
+mod storage;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -353,6 +355,7 @@ fn main() {
     }
     report_foreground();
     tauri::Builder::default()
+        .manage(storage::Storage::default())
         .setup(|app| {
             tray(app)?;
             Ok(())
@@ -385,7 +388,21 @@ fn main() {
             sessions_list,
             session_get,
             session_trace,
-            export_csv
+            export_csv,
+            storage::storage_drives,
+            storage::storage_scan,
+            storage::storage_cancel,
+            storage::storage_children,
+            storage::storage_largest,
+            storage::storage_types,
+            storage::storage_duplicates,
+            storage::storage_suggestions,
+            storage::storage_delete,
+            storage::storage_empty_recycle_bin,
+            storage::storage_reveal,
+            storage::storage_open_storage_sense,
+            storage::storage_health,
+            storage::storage_optimize
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

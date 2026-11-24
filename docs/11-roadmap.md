@@ -226,7 +226,7 @@ Spec: `14-storage.md`. What fills the drives, safe clean-up, drive health.
 
 **Acceptance**
 
-- Scan of the dev laptop's system drive finishes under 60 s; its total is within 2% of the drive's used space minus "not readable" folders
+- Scan of the dev laptop's system drive finishes under 60 s (release build); the screen shows what it counted plus "not visible to your account", which together are the drive's used space (the account cannot measure what it cannot open, so no 2% comparison is possible without admin rights)
 - Hard links counted once, junctions not followed, online-only OneDrive files shown as zero local space (unit tests on fake trees, one real check)
 - Duplicates are confirmed by content hash; two files with the same name and size but different content are not reported
 - Deleting ticked items moves them to the Recycle Bin; restoring them brings them back byte for byte

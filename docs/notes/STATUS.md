@@ -132,3 +132,37 @@ Branch `m4-m5-session-story`. Verified on the dev laptop by
 **Known shortcuts** (each marked `shortcut:` in code)
 - Steam launch config not read; largest eligible exe is the main exe
 - no session actions until M3
+
+## M12 — Storage: built, not complete (2026-11-24)
+
+Verified on the dev laptop in the real app and by probes (`tools/probes`
+`storage`, `diskhealth`, `optimize`).
+
+**Works**
+- Storage screen: drive space and drive health on the inspection sheet; clean-up
+  suggestions (Recycle Bin, old temp files, installers and old downloads,
+  Windows leftovers through Storage Sense); folder browser with sizes; largest
+  files; file types; duplicates confirmed by content (SHA-256)
+- Scan in the app under the user's account: C: (1.3 to 1.6 million entries) in
+  14 to 40 s release, 62 s debug build; the remainder shown as "Not visible to
+  your account"
+- Deleting: a test file went to the Recycle Bin and is restorable; Windows,
+  another profile, Downloads itself and `pagefile.sys` refused with reasons
+  (real app); protected-location rules unit-tested
+- `storage.health` (service): Micron 2400 SSD, Healthy, 0% worn (reported as
+  0), 60 °C; `storage.optimize`: ReTrim on C: from the app's button
+- Unit tests: tree totals, hard links, placeholders, junctions, unreadable
+  folders, removal, duplicates by content, suggestions, protected locations,
+  UI helpers (sizes, nested selections, marks)
+
+**Not done**
+- Restore from the Recycle Bin byte for byte: not checked by a test
+- Duplicates on the real drive: only unit-tested (reading every candidate file
+  takes long)
+- Optimize refused during Session Mode: code path only, not run
+- Grep test that no file name reaches the database or logs: by inspection only
+  (the service never receives a path; the app does not log)
+- Manual: the owner frees space with the suggestions and restores one file
+
+**Known shortcuts** (each marked `shortcut:` in code)
+- none in M12; the session list paging limit from the review fixes stands

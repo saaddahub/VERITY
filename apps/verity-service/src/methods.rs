@@ -36,6 +36,8 @@ pub struct Service {
     capturing: Arc<tokio::sync::Mutex<()>>,
     presentmon: PathBuf,
     pub session: Handle,
+    /// One Optimize Drives run at a time.
+    optimizing: tokio::sync::Mutex<()>,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +97,12 @@ struct EnableParams {
 #[derive(Deserialize)]
 struct ForegroundParams {
     pid: u32,
+}
+
+#[derive(Deserialize)]
+struct OptimizeParams {
+    /// A drive letter, checked against the volumes Windows lists.
+    drive: String,
 }
 
 fn params<T: for<'de> Deserialize<'de>>(v: Value) -> Result<T, RpcError> {
@@ -160,6 +168,7 @@ impl Service {
                 capturing,
                 presentmon,
                 session,
+                optimizing: tokio::sync::Mutex::new(()),
             },
             task,
         )
@@ -337,6 +346,32 @@ impl Service {
         Ok(json!({ "profile": profile, "warnings": warnings }))
     }
 
+    async fn storage_optimize(&self, p: OptimizeParams) -> Result<Value, RpcError> {
+        let mut chars = p.drive.trim_end_matches([':', '\\']).chars();
+        let letter = match (chars.next(), chars.next()) {
+            (Some(c), None) if c.is_ascii_alphabetic() => c,
+            _ => return Err(invalid("drive must be a letter like C")),
+        };
+        let idle = self
+            .session
+            .view
+            .lock()
+            .map(|v| v.status.get("state").and_then(Value::as_str) == Some("idle"))
+            .unwrap_or(false);
+        if !idle {
+            return Err(invalid("Optimize waits until no game session is running"));
+        }
+        let _one_at_a_time = self
+            .optimizing
+            .try_lock()
+            .map_err(|_| invalid("Optimize is already running"))?;
+        let code = tokio::task::spawn_blocking(move || crate::storage::optimize(letter))
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
+        Ok(json!({ "drive": letter.to_ascii_uppercase().to_string(), "result": code }))
+    }
+
     fn story(&self, id: i64) -> Result<crate::story::StoryOut, RpcError> {
         let store = self.store()?;
         crate::story::for_session(&store, id).map_err(store_error)
@@ -436,6 +471,15 @@ impl Handler for Service {
                 let _ = self.session.tx.send(Msg::Foreground(p.pid));
                 Ok(json!({ "ok": true }))
             }
+
+            "storage.health" => {
+                let (disks, volumes) = tokio::task::spawn_blocking(crate::storage::health)
+                    .await
+                    .map_err(internal)?
+                    .map_err(internal)?;
+                Ok(json!({ "disks": disks, "volumes": volumes }))
+            }
+            "storage.optimize" => self.storage_optimize(params(p)?).await,
 
             "story.get" => {
                 let p: IdParams = params(p)?;

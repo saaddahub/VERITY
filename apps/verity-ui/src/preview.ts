@@ -2,7 +2,20 @@
 // from real test recordings of the framegen tool on the development laptop.
 // Never used inside the app.
 
-import type { Game, Session, SessionRow, SessionStatus, StoryData, SystemInfo, Trace } from "./api.ts";
+import type {
+  Folder,
+  Game,
+  Health,
+  ScanSummary,
+  Session,
+  SessionRow,
+  SessionStatus,
+  StorageItem,
+  StoryData,
+  Suggestion,
+  SystemInfo,
+  Trace,
+} from "./api.ts";
 
 const FREQ = 10_000_000;
 
@@ -135,6 +148,136 @@ function storyFor(id: number): StoryData {
   };
 }
 
+/* Storage: the C: drive scan of the development laptop (tools/probes storage).
+   Top-level folder sizes are real; file names below them are samples. */
+const GB = 1024 ** 3;
+const FT_DAY = 864_000_000_000;
+const ftNow = (Date.now() + 11_644_473_600_000) * 10_000;
+const item = (id: number, path: string, bytes: number, o: Partial<StorageItem> = {}): StorageItem => ({
+  id,
+  name: path.split("\\").pop() ?? path,
+  path,
+  is_dir: true,
+  bytes,
+  files: Math.round(bytes / 400_000),
+  newest: ftNow - 2 * FT_DAY,
+  unreadable: false,
+  online_only: false,
+  link: false,
+  deletable: true,
+  ...o,
+});
+const drive = { root: "C:\\", total: 484_569_321_472, free: 109_058_310_144 };
+const scan: ScanSummary = {
+  root: "C:\\",
+  counted: 323_290_000_000,
+  files: 1_335_970,
+  unreadable_folders: 144,
+  drive_total: drive.total,
+  drive_used: drive.total - drive.free,
+  not_visible: drive.total - drive.free - 323_290_000_000,
+  seconds: 14.4,
+  cancelled: false,
+};
+const top: StorageItem[] = [
+  item(1, "C:\\Users", 120.79e9, { deletable: false }),
+  item(2, "C:\\Riot Games", 36.13e9),
+  item(3, "C:\\Windows", 34.6e9, { deletable: false }),
+  item(4, "C:\\Medal", 25.95e9),
+  item(5, "C:\\ProgramData", 20.1e9, { deletable: false }),
+  item(6, "C:\\Program Files", 18.18e9, { deletable: false }),
+  item(7, "C:\\dev", 18.16e9),
+  item(8, "C:\\Program Files (x86)", 17.44e9, { deletable: false }),
+  item(9, "C:\\System Volume Information", 0, { unreadable: true, deletable: false, files: 0 }),
+];
+const largest: StorageItem[] = [
+  item(20, "C:\\Users\\you\\Downloads\\sample-installer.iso", 5.6 * GB, { is_dir: false, files: 1, newest: ftNow - 120 * FT_DAY }),
+  item(21, "C:\\Medal\\Clips\\sample-clip-01.mp4", 3.9 * GB, { is_dir: false, files: 1, newest: ftNow - 40 * FT_DAY }),
+  item(22, "C:\\Medal\\Clips\\sample-clip-02.mp4", 2.2 * GB, { is_dir: false, files: 1, newest: ftNow - 9 * FT_DAY }),
+];
+function folderFor(id: number): Folder {
+  if (id === 0) {
+    const shown = top.reduce((s, i) => s + i.bytes, 0);
+    return {
+      id: 0,
+      path: "C:\\",
+      bytes: scan.counted,
+      files: scan.files,
+      crumbs: [{ id: 0, name: "C:\\" }],
+      items: top,
+      more: { count: 31, bytes: scan.counted - shown },
+    };
+  }
+  const f = top.find((i) => i.id === id) ?? top[0];
+  return {
+    id,
+    path: f.path,
+    bytes: f.bytes,
+    files: f.files,
+    crumbs: [{ id: 0, name: "C:\\" }, { id, name: f.name }],
+    items: [],
+    more: { count: 0, bytes: 0 },
+  };
+}
+const suggestions: Suggestion[] = [
+  {
+    id: "recycle_bin",
+    title: "Recycle Bin",
+    detail: "Deleted items are still taking space. Emptying it cannot be undone.",
+    kind: "empty_recycle_bin",
+    bytes: 3.1 * GB,
+    items: [],
+    preselected: false,
+  },
+  {
+    id: "temp",
+    title: "Old temporary files",
+    detail: "Left behind by apps and installers, untouched for over a week.",
+    kind: "delete",
+    bytes: 1.4 * GB,
+    preselected: true,
+    items: [
+      { path: "C:\\Users\\you\\AppData\\Local\\Temp\\sample-setup-cache", bytes: 1.1 * GB, modified: ftNow - 30 * FT_DAY, is_dir: true },
+      { path: "C:\\Users\\you\\AppData\\Local\\Temp\\sample.tmp", bytes: 0.3 * GB, modified: ftNow - 12 * FT_DAY, is_dir: false },
+    ],
+  },
+  {
+    id: "installers",
+    title: "Installers in Downloads",
+    detail: "Setup files are usually not needed once the app is installed.",
+    kind: "delete",
+    bytes: 5.6 * GB,
+    preselected: false,
+    items: [{ path: "C:\\Users\\you\\Downloads\\sample-installer.iso", bytes: 5.6 * GB, modified: ftNow - 120 * FT_DAY, is_dir: false }],
+  },
+  {
+    id: "windows",
+    title: "Windows leftovers",
+    detail: "Update files, a previous Windows installation and crash reports. Windows' own Storage Sense removes these safely.",
+    kind: "open_storage_sense",
+    bytes: null,
+    items: [],
+    preselected: false,
+  },
+];
+const health: Health = {
+  disks: [
+    {
+      model: "NVMe Micron_2400_MTFDKBA512QFM",
+      media: "SSD",
+      health: "Healthy",
+      size: 512_110_190_592,
+      wear: null,
+      temperature: null,
+      temperature_max: null,
+      read_errors: null,
+      write_errors: null,
+      power_on_hours: null,
+    },
+  ],
+  volumes: [{ letter: "C", file_system: "NTFS", size: drive.total, free: drive.free }],
+};
+
 export async function preview<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 120));
   const id = Number(args?.id);
@@ -152,7 +295,23 @@ export async function preview<T>(cmd: string, args?: Record<string, unknown>): P
     games_list: games,
     games_scan: games,
     story_export: `C:\\Users\\you\\Downloads\\verity-frame-story-${id}.html`,
+    storage_drives: [drive],
+    storage_scan: scan,
+    storage_largest: largest,
+    storage_types: [
+      { group: "Game data", bytes: 61.2e9, files: 18_402 },
+      { group: "System and app data", bytes: 58.7e9, files: 612_330 },
+      { group: "Videos", bytes: 44.9e9, files: 312 },
+      { group: "Programs and installers", bytes: 31.0e9, files: 9_840 },
+      { group: "Other", bytes: 127.5e9, files: 695_086 },
+    ],
+    storage_duplicates: [],
+    storage_suggestions: suggestions,
+    storage_health: health,
   };
+  if (cmd === "storage_children") return folderFor(id) as T;
+  if (["storage_delete", "storage_empty_recycle_bin", "storage_optimize", "storage_reveal", "storage_open_storage_sense"].includes(cmd))
+    throw new Error("Not available in the design preview.");
   if (cmd === "story_get") return storyFor(id) as T;
   if (cmd === "session_enable") enabled = Boolean(args?.on);
   if (cmd === "session_panic") enabled = false;

@@ -2,6 +2,36 @@
 
 Changes from the spec and why. Newest first.
 
+## 2026-11-24 — M12 Storage, from the probes
+
+Dev laptop: Windows 11 25H2 build 26200, Micron 2400 NVMe SSD.
+
+- **Scan speed and memory** (`tools/probes` `storage`, release): 1.6 million
+  entries on C: in 14 to 40 s with 12 threads, 171 s single-threaded; about
+  155 MB peak. The tree keeps names in one shared string and children as
+  sibling links to stay that small.
+- **Coverage:** the user's account counts 306 to 323 GB of about 373 GB used;
+  the rest is in places it cannot open. The "within 2%" acceptance criterion
+  could not be tested without admin rights, so it was rewritten: the screen
+  shows the remainder as "Not visible to your account".
+- **Reliability counters** are reached only through each physical disk's
+  association (`ASSOCIATORS OF {disk} WHERE ResultClass =
+  MSFT_StorageReliabilityCounter`); a plain `SELECT` returns no rows even
+  elevated. The laptop's SSD reports temperature (60 °C) but 0 for wear and
+  power-on hours.
+- **Optimize Drives:** `MSFT_Volume.Optimize` with no arguments fails with
+  `WBEM_E_INVALID_PARAMETER`; it needs an operation (`ReTrim` or `Defrag`) and
+  the namespace-relative `__RELPATH`. Verity picks the operation from the drive
+  type (volume, partition `DiskNumber`, physical disk `MediaType`); ReTrim on
+  C: took 2.6 s.
+- **Deleting** goes through `IFileOperation` with Recycle Bin and
+  `FOF_WANTNUKEWARNING`, so Windows' own "delete permanently?" prompt is the
+  second confirmation for items the Recycle Bin cannot take. Verified on the
+  laptop: a test file landed in the Recycle Bin; Windows, another profile,
+  Downloads itself and `pagefile.sys` were refused before any shell call.
+- Dependency added: `sha2` in `verity-storage`, to confirm duplicates by
+  content (already used by `verity-telemetry`).
+
 ## 2026-11-23 — Four added milestones (owner request)
 
 The owner asked for Process Lasso-style CPU rules, NetLimiter-style network

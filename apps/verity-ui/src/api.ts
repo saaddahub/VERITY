@@ -140,6 +140,93 @@ export interface StoryData {
   events_truncated: boolean;
   qpc_freq: number;
 }
+/* ---------- Storage (docs/14-storage.md) ---------- */
+export interface Drive {
+  root: string;
+  total: number;
+  free: number;
+}
+export interface ScanSummary {
+  root: string;
+  counted: number;
+  files: number;
+  unreadable_folders: number;
+  drive_total: number;
+  drive_used: number;
+  not_visible: number;
+  seconds: number;
+  cancelled: boolean;
+}
+export interface ScanProgress {
+  dirs: number;
+  files: number;
+  bytes: number;
+  done: boolean;
+}
+export interface StorageItem {
+  id: number;
+  name: string;
+  path: string;
+  is_dir: boolean;
+  bytes: number;
+  files: number;
+  /** Newest change inside, FILETIME. */
+  newest: number;
+  unreadable: boolean;
+  online_only: boolean;
+  link: boolean;
+  deletable: boolean;
+}
+export interface Folder {
+  id: number;
+  path: string;
+  bytes: number;
+  files: number;
+  crumbs: { id: number; name: string }[];
+  items: StorageItem[];
+  more: { count: number; bytes: number };
+}
+export interface TypeGroup {
+  group: string;
+  bytes: number;
+  files: number;
+}
+export interface DupGroup {
+  size: number;
+  wasted: number;
+  items: StorageItem[];
+}
+export interface Suggestion {
+  id: string;
+  title: string;
+  detail: string;
+  kind: "delete" | "empty_recycle_bin" | "open_storage_sense";
+  bytes: number | null;
+  items: { path: string; bytes: number; modified: number; is_dir: boolean }[];
+  preselected: boolean;
+}
+export interface DeleteResult {
+  deleted: string[];
+  kept: { path: string; reason: string }[];
+  freed: number;
+}
+export interface Disk {
+  model: string;
+  media: "SSD" | "HDD" | "SCM" | "Unknown";
+  health: "Healthy" | "Warning" | "Unhealthy" | "Unknown";
+  size: number;
+  wear: number | null;
+  temperature: number | null;
+  temperature_max: number | null;
+  read_errors: number | null;
+  write_errors: number | null;
+  power_on_hours: number | null;
+}
+export interface Health {
+  disks: Disk[];
+  volumes: { letter: string; file_system: string; size: number; free: number }[];
+}
+
 export type ServiceState =
   | { state: "running" }
   | { state: "stopped" }
@@ -181,4 +268,31 @@ export const api = {
     invoke<unknown>("games_answer", { exe, answer }),
   story: (id: number) => invoke<StoryData>("story_get", { id }),
   storyExport: (id: number) => invoke<string>("story_export", { id }),
+};
+
+/** Listens to a Tauri event; in the browser preview nothing is ever sent. */
+async function listen<T>(event: string, cb: (payload: T) => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<T>(event, (e) => cb(e.payload));
+}
+
+/** Storage runs in the app under the user's account; only health asks the service. */
+export const storage = {
+  drives: () => invoke<Drive[]>("storage_drives"),
+  scan: (root: string) => invoke<ScanSummary>("storage_scan", { root }),
+  cancel: () => invoke<void>("storage_cancel"),
+  children: (id: number) => invoke<Folder>("storage_children", { id }),
+  largest: () => invoke<StorageItem[]>("storage_largest"),
+  types: () => invoke<TypeGroup[]>("storage_types"),
+  duplicates: () => invoke<DupGroup[]>("storage_duplicates"),
+  suggestions: () => invoke<Suggestion[]>("storage_suggestions"),
+  remove: (paths: string[]) => invoke<DeleteResult>("storage_delete", { paths }),
+  emptyRecycleBin: () => invoke<void>("storage_empty_recycle_bin"),
+  reveal: (path: string) => invoke<void>("storage_reveal", { path }),
+  openStorageSense: () => invoke<void>("storage_open_storage_sense"),
+  health: () => invoke<Health>("storage_health"),
+  optimize: (drive: string) => invoke<{ drive: string; result: number }>("storage_optimize", { drive }),
+  onProgress: (cb: (p: ScanProgress) => void) => listen<ScanProgress>("storage-progress", cb),
+  onDupesProgress: (cb: (p: { done: number; total: number }) => void) => listen("storage-dupes-progress", cb),
 };

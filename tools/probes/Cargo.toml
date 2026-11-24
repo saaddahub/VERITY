@@ -9,3 +9,4 @@ verity-core.workspace = true
 verity-sys.workspace = true
 serde_json.workspace = true
 verity-session = { path = "../../crates/verity-session" }
+verity-storage.workspace = true

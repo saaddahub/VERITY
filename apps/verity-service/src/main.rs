@@ -2,6 +2,7 @@
 
 mod methods;
 mod session_mode;
+mod storage;
 mod story;
 mod story_capture;
 

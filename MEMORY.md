@@ -8,7 +8,7 @@ is next. Then follow `CLAUDE.md` (or `AGENTS.md` for Codex). Details live in
 **Keep it current:** at the end of every session, update "Last session",
 "Done" and "Next" below, then commit it with the work.
 
-Last updated: 2026-11-17 (evening)
+Last updated: 2026-11-24
 
 ## What Verity is
 
@@ -54,10 +54,11 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
 
 ## Next (in order)
 
-0. **Build M12 Storage, then M13 Malware Scan** (owner request 2026-11-23;
-   specs `docs/14-storage.md`, `docs/15-malware-scan.md`). M10 Process Rules and
-   M11 Network Control (specs 12 and 13) wait for M3. Safety amendments for all
-   four are approved and written into `docs/09-safety.md`.
+0. **M12 Storage is built** (2026-11-24, see `docs/notes/STATUS.md`): owner's
+   manual check left (free space with the suggestions, restore one file). Next:
+   **M13 Malware Scan** (`docs/15-malware-scan.md`), reusing the WMI wrapper in
+   `verity-sys::wmi`. M10 Process Rules and M11 Network Control wait for M3.
+   Safety amendments for all four are approved in `docs/09-safety.md`.
 1. **Merge with the co-developer's M2 and M3** (they were pushing them on
    2026-11-17 evening). Then: implement `SessionActions` in
    `apps/verity-service/src/session_mode.rs` with M3's actions (background
@@ -90,11 +91,14 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
 - UI preview in a browser with sample data: `npm --prefix apps/verity-ui run dev`, open `http://localhost:1420`.
 - PresentMon is not in git: see `tools/presentmon/README.md`.
 
-## Last session (2026-11-17)
+## Last session (2026-11-23 to 24)
 
-The owner asked for M4 and M5 while the co-developer builds M2 and M3. Built
-both on branch `m4-m5-session-story` (desktop app first: Games screen, Frame
-Story panel, notices, tray). Probes verified the ETW payloads, Steam library and
-counters on the laptop. The admin tests found one real bug (program-start
-events timed on arrival, up to a second late); fixed and retested. Not merged
-or pushed: wait for the co-developer's M2/M3, then merge and wire M3 actions in.
+Code review of the whole codebase: 10 findings fixed (oversized IPC replies,
+relaunch capture, kernel event growth, library sync deleting profiles, manual
+start identity, and smaller ones); chart axis fix. The owner asked for Process
+Lasso, NetLimiter, storage and antivirus features: researched and specified as
+M10 to M13 with owner-approved safety amendments (no kernel driver; Recycle
+Bin plus confirmed permanent delete; CPU rules on non-game apps). Built M12
+Storage end to end and checked it in the real app. The owner's M4/M5 branch
+was merged to `main` as PR #2; later commits on `m4-m5-session-story` are not
+pushed yet.
