@@ -2,6 +2,25 @@
 
 Changes from the spec and why. Newest first.
 
+## 2026-11-24 — One-click junk cleanup, nothing opens Explorer
+
+The owner wants Storage to work like Microsoft PC Manager: detect junk and
+delete it in the app with one click, never sending the user to File Explorer
+or Settings. Asked and decided: Windows' junk through its own Disk Cleanup
+handlers plus the user's own junk, "a mix of both but safe"; junk deleted for
+good after one confirmation, the user's own files still to the Recycle Bin.
+
+- `09-safety.md` §3 amended (owner-approved): permanent deletion of catalog
+  junk; the service clears machine-wide junk only through allowlisted Windows
+  handlers, never by path; no cleaning during a game session.
+- The "Show in File Explorer" links and the "Open Storage Sense" button are
+  gone. The temp-folder suggestion is replaced by the "Temporary Files"
+  handler, which applies Windows' own rules for what is old enough to remove.
+- Dependency added: `windows-core` 0.61 in `verity-sys`, already in the build
+  through `windows`; the `implement` macro for the cleanup progress callback
+  expands to its paths. Without a callback the D3D Shader Cache handler
+  crashed the probe.
+
 ## 2026-11-24 — M12 Storage, from the probes
 
 Dev laptop: Windows 11 25H2 build 26200, Micron 2400 NVMe SSD.

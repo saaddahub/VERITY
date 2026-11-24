@@ -55,7 +55,10 @@ Verity never, under any setting:
 - Disables security mitigations (speculative-execution mitigations, memory integrity, driver signature enforcement, UAC)
 - Disables Windows Update or its services
 - Edits boot configuration (BCD)
-- Deletes anything on its own. On the Storage screen the user may delete files they pick: they go to the Recycle Bin, or, for items the Recycle Bin cannot take, are deleted permanently after a second confirmation. This runs in the app under the user's own account, never in the service (`14-storage.md`; approved by the owner, 2026-11-23). Prefetch data, restore points and event logs are never deleted.
+- Deletes anything on its own. On the Storage screen, after the user clicks and confirms (`14-storage.md`; approved by the owner, 2026-11-23 and 2026-11-24):
+  - files the user picks go to the Recycle Bin, or, for items the Recycle Bin cannot take, are deleted permanently after Windows' own second confirmation; this runs in the app under the user's account;
+  - junk from the fixed junk catalog (temporary files, caches, crash dumps, logs) is deleted permanently after one confirmation. The user's own junk is cleared in the app; machine-wide junk is cleared by the service, and only through Windows' own Disk Cleanup handlers named in the catalog, never by a path. Handlers that remove a way back (previous installations, reset files, old drivers, file versions), touch a security product or empty a user folder are never used.
+  Prefetch data, restore points and event logs are never deleted. Nothing is cleaned while a game session is running.
 - Removes or disables Windows components or Store apps
 - Kills processes or stops services outside the session-pause allowlist
 - Changes power settings for battery (DC) operation

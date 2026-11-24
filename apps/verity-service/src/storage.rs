@@ -166,6 +166,43 @@ pub fn health() -> Result<(Vec<Disk>, Vec<Volume>), String> {
     Ok((disks_from(&disks, &reliability), volumes(&w)?))
 }
 
+/// The system drive root, like `C:\`, where Windows keeps its own junk.
+pub fn system_drive() -> String {
+    format!(
+        "{}\\",
+        std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into())
+    )
+}
+
+/// Measures or clears each `(id, handler)` on the system drive, one result per
+/// category: `{ id, bytes }` or `{ id, error }`. Each handler runs on its own
+/// thread with its own COM apartment. Blocking.
+pub fn junk(handlers: &[(&'static str, &'static str)], clean: bool) -> Vec<serde_json::Value> {
+    let volume = system_drive();
+    handlers
+        .iter()
+        .map(|&(id, handler)| {
+            let v = volume.clone();
+            let r = std::thread::spawn(move || {
+                if clean {
+                    verity_sys::cleanup::purge(handler, &v)
+                } else {
+                    verity_sys::cleanup::measure(handler, &v).map(|m| m.bytes)
+                }
+            })
+            .join();
+            match r {
+                Ok(Ok(bytes)) => serde_json::json!({ "id": id, "bytes": bytes }),
+                Ok(Err(e)) => {
+                    tracing::warn!(id, "cleanup handler failed: {e}");
+                    serde_json::json!({ "id": id, "error": e.to_string() })
+                }
+                Err(_) => serde_json::json!({ "id": id, "error": "the cleanup handler stopped unexpectedly" }),
+            }
+        })
+        .collect()
+}
+
 /// Runs Optimize Drives (TRIM on an SSD, defragmentation on an HDD) on the
 /// volume with this letter, which must be one Windows itself lists. Blocking;
 /// can take minutes. Returns the method's result code (0 is success).

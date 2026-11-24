@@ -1,11 +1,11 @@
 //! Shell operations for the Storage screen, run in the desktop app under the
 //! user's account (docs/14-storage.md, "Deleting"): Recycle Bin moves,
-//! emptying the Recycle Bin, known folders, opening Explorer and Settings.
+//! emptying the Recycle Bin and known folders. Nothing here opens another app.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use verity_core::OsError;
-use windows::core::{w, PCWSTR};
+use windows::core::PCWSTR;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
@@ -15,10 +15,9 @@ use windows::Win32::UI::Shell::{
     FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_Music, FOLDERID_Pictures,
     FOLDERID_Profile, FOLDERID_Videos, FileOperation, IFileOperation, IShellItem,
     SHCreateItemFromParsingName, SHEmptyRecycleBinW, SHGetKnownFolderPath, SHQueryRecycleBinW,
-    ShellExecuteW, FOFX_RECYCLEONDELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_WANTNUKEWARNING,
-    KF_FLAG_DEFAULT, SHERB_NOCONFIRMATION, SHQUERYRBINFO,
+    FOFX_RECYCLEONDELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_WANTNUKEWARNING, KF_FLAG_DEFAULT,
+    SHERB_NOCONFIRMATION, SHQUERYRBINFO,
 };
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 use crate::{hresult, wide};
 
@@ -136,41 +135,6 @@ pub fn known_folder(k: Known) -> Option<PathBuf> {
     // SAFETY: allocated by the shell with CoTaskMemAlloc, freed once.
     unsafe { CoTaskMemFree(Some(p.0 as *const _)) };
     s.map(PathBuf::from)
-}
-
-fn shell_open(file: PCWSTR, params: Option<&[u16]>) -> Result<(), OsError> {
-    let params = params.map_or(PCWSTR::null(), |p| PCWSTR(p.as_ptr()));
-    // SAFETY: all strings are NUL-terminated and outlive the call.
-    let r = unsafe {
-        ShellExecuteW(
-            None,
-            w!("open"),
-            file,
-            params,
-            PCWSTR::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-    // ShellExecuteW reports success as a value above 32.
-    if r.0 as usize > 32 {
-        Ok(())
-    } else {
-        Err(OsError {
-            api: "ShellExecuteW",
-            code: r.0 as usize as u32,
-        })
-    }
-}
-
-/// Opens Explorer with `path` selected.
-pub fn reveal(path: &Path) -> Result<(), OsError> {
-    let params = wide(format!("/select,\"{}\"", path.display()));
-    shell_open(w!("explorer.exe"), Some(&params))
-}
-
-/// Opens Windows' Storage Sense settings page.
-pub fn open_storage_sense() -> Result<(), OsError> {
-    shell_open(w!("ms-settings:storagesense"), None)
 }
 
 #[cfg(test)]

@@ -200,10 +200,24 @@ export interface Suggestion {
   id: string;
   title: string;
   detail: string;
-  kind: "delete" | "empty_recycle_bin" | "open_storage_sense";
-  bytes: number | null;
+  kind: "delete" | "empty_recycle_bin";
+  bytes: number;
   items: { path: string; bytes: number; modified: number; is_dir: boolean }[];
+}
+/** One entry of the junk catalog (crates/verity-storage/src/junk.rs). */
+export interface JunkCategory {
+  id: string;
+  title: string;
+  detail: string;
+  runs: "app" | "service";
   preselected: boolean;
+  /** Measuring takes minutes on some PCs. */
+  slow: boolean;
+}
+export interface JunkResult {
+  id: string;
+  bytes?: number;
+  error?: string;
 }
 export interface DeleteResult {
   deleted: string[];
@@ -289,8 +303,9 @@ export const storage = {
   suggestions: () => invoke<Suggestion[]>("storage_suggestions"),
   remove: (paths: string[]) => invoke<DeleteResult>("storage_delete", { paths }),
   emptyRecycleBin: () => invoke<void>("storage_empty_recycle_bin"),
-  reveal: (path: string) => invoke<void>("storage_reveal", { path }),
-  openStorageSense: () => invoke<void>("storage_open_storage_sense"),
+  junkCatalog: () => invoke<JunkCategory[]>("storage_junk_catalog"),
+  junkMeasure: (ids: string[]) => invoke<JunkResult[]>("storage_junk_measure", { ids }),
+  junkClean: (ids: string[]) => invoke<JunkResult[]>("storage_junk_clean", { ids }),
   health: () => invoke<Health>("storage_health"),
   optimize: (drive: string) => invoke<{ drive: string; result: number }>("storage_optimize", { drive }),
   onProgress: (cb: (p: ScanProgress) => void) => listen<ScanProgress>("storage-progress", cb),

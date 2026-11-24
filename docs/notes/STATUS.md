@@ -139,9 +139,9 @@ Verified on the dev laptop in the real app and by probes (`tools/probes`
 `storage`, `diskhealth`, `optimize`).
 
 **Works**
-- Storage screen: drive space and drive health on the inspection sheet; clean-up
-  suggestions (Recycle Bin, old temp files, installers and old downloads,
-  Windows leftovers through Storage Sense); folder browser with sizes; largest
+- Storage screen: drive space and drive health on the inspection sheet;
+  junk cleanup with one button (Windows Disk Cleanup handlers and browser
+  caches, sizes measured on open); Recycle Bin, installers and old downloads to the Recycle Bin; folder browser with sizes; largest
   files; file types; duplicates confirmed by content (SHA-256)
 - Scan in the app under the user's account: C: (1.3 to 1.6 million entries) in
   14 to 40 s release, 62 s debug build; the remainder shown as "Not visible to

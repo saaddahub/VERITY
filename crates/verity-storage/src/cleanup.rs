@@ -1,5 +1,7 @@
-//! Clean-up suggestions (docs/14-storage.md). Each lists exactly the items
-//! it would remove; nothing is removed until the user ticks and confirms.
+//! Suggestions about the user's own files (docs/14-storage.md): the Recycle
+//! Bin, installers and old downloads. Each lists exactly the items it would
+//! move to the Recycle Bin; nothing moves until the user ticks and confirms.
+//! Junk that Windows and apps rebuild is the junk catalog (`junk.rs`).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -11,7 +13,6 @@ use crate::{scan, FsApi};
 
 /// FILETIME ticks per day.
 const DAY: u64 = 864_000_000_000;
-const TEMP_AGE_DAYS: u64 = 7;
 const DOWNLOAD_AGE_DAYS: u64 = 90;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -21,8 +22,6 @@ pub enum Kind {
     Delete,
     /// Emptying the Recycle Bin (permanent, confirmed separately).
     EmptyRecycleBin,
-    /// Windows' own Storage Sense removes these.
-    OpenStorageSense,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -40,23 +39,16 @@ pub struct Suggestion {
     pub title: &'static str,
     pub detail: &'static str,
     pub kind: Kind,
-    /// Total size, or None when Windows does not let the user read it.
-    pub bytes: Option<u64>,
+    pub bytes: u64,
     pub items: Vec<Item>,
-    /// Ticked by default.
-    pub preselected: bool,
 }
 
 /// Where to look.
 #[derive(Debug, Clone, Default)]
 pub struct Places {
-    pub temp: Option<PathBuf>,
     pub downloads: Option<PathBuf>,
     /// (bytes, items) from the shell, when known.
     pub recycle_bin: Option<(u64, u64)>,
-    /// Windows' own leftovers that Storage Sense cleans: previous Windows
-    /// installation, crash dumps and the like.
-    pub windows_leftovers: Vec<PathBuf>,
 }
 
 fn walk(fs: &dyn FsApi, dir: &Path) -> Tree {
@@ -101,24 +93,8 @@ pub fn suggest(fs: &dyn FsApi, places: &Places, now: u64) -> Vec<Suggestion> {
                 "Deleted items are still taking space. Emptying it cannot be undone."
             },
             kind: Kind::EmptyRecycleBin,
-            bytes: Some(bytes),
+            bytes,
             items: Vec::new(),
-            preselected: false,
-        });
-    }
-
-    if let Some(temp) = &places.temp {
-        let t = walk(fs, temp);
-        let old = now.saturating_sub(TEMP_AGE_DAYS * DAY);
-        let items = top_items(&t, |n, _| n.newest > 0 && n.newest < old);
-        out.push(Suggestion {
-            id: "temp",
-            title: "Old temporary files",
-            detail: "Left behind by apps and installers, untouched for over a week.",
-            kind: Kind::Delete,
-            bytes: Some(items.iter().map(|i| i.bytes).sum()),
-            items,
-            preselected: true,
         });
     }
 
@@ -134,39 +110,16 @@ pub fn suggest(fs: &dyn FsApi, places: &Places, now: u64) -> Vec<Suggestion> {
             title: "Installers in Downloads",
             detail: "Setup files are usually not needed once the app is installed.",
             kind: Kind::Delete,
-            bytes: Some(installers.iter().map(|i| i.bytes).sum()),
+            bytes: installers.iter().map(|i| i.bytes).sum(),
             items: installers,
-            preselected: false,
         });
         out.push(Suggestion {
             id: "old_downloads",
             title: "Old downloads",
             detail: "Not opened or changed in over three months. Check before removing.",
             kind: Kind::Delete,
-            bytes: Some(stale.iter().map(|i| i.bytes).sum()),
+            bytes: stale.iter().map(|i| i.bytes).sum(),
             items: stale,
-            preselected: false,
-        });
-    }
-
-    if !places.windows_leftovers.is_empty() {
-        let mut bytes = Some(0u64);
-        for dir in &places.windows_leftovers {
-            let t = walk(fs, dir);
-            match (&mut bytes, t.unreadable) {
-                (Some(b), 0) => *b += t.node(ROOT).map_or(0, |n| n.total),
-                _ => bytes = None,
-            }
-        }
-        out.push(Suggestion {
-            id: "windows",
-            title: "Windows leftovers",
-            detail: "Update files, a previous Windows installation and crash reports. \
-                     Windows' own Storage Sense removes these safely.",
-            kind: Kind::OpenStorageSense,
-            bytes,
-            items: Vec::new(),
-            preselected: false,
         });
     }
 
@@ -177,75 +130,42 @@ pub fn suggest(fs: &dyn FsApi, places: &Places, now: u64) -> Vec<Suggestion> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fake::{dir, file, FakeFs};
+    use crate::fake::{file, FakeFs};
 
     #[test]
     fn suggestions_list_exactly_their_items() {
         let now = 1000 * DAY;
         let mut fs = FakeFs::default();
         fs.add(
-            r"T:\Temp",
-            vec![
-                file("old.tmp", 500, now - 30 * DAY),
-                file("fresh.tmp", 900, now - DAY),
-                dir("Setup"),
-            ],
-        )
-        .add(r"T:\Temp\Setup", vec![file("cab", 200, now - 10 * DAY)])
-        .add(
             r"T:\Downloads",
             vec![
                 file("game-setup.exe", 4000, now - DAY),
                 file("old video.mp4", 7000, now - 200 * DAY),
                 file("recent.pdf", 50, now - 5 * DAY),
             ],
-        )
-        .add(r"T:\Windows.old", vec![]);
-        fs.unreadable.push(PathBuf::from(r"T:\Windows.old"));
+        );
         let places = Places {
-            temp: Some(PathBuf::from(r"T:\Temp")),
             downloads: Some(PathBuf::from(r"T:\Downloads")),
             recycle_bin: Some((12_345, 3)),
-            windows_leftovers: vec![PathBuf::from(r"T:\Windows.old")],
         };
         let s = suggest(&fs, &places, now);
         let ids: Vec<&str> = s.iter().map(|x| x.id).collect();
+        assert_eq!(ids, ["recycle_bin", "installers", "old_downloads"]);
+        assert_eq!(s[0].bytes, 12_345);
+        assert_eq!(s[1].items.len(), 1);
         assert_eq!(
-            ids,
-            [
-                "recycle_bin",
-                "temp",
-                "installers",
-                "old_downloads",
-                "windows"
-            ]
-        );
-
-        let temp = &s[1];
-        let names: Vec<String> = temp
-            .items
-            .iter()
-            .map(|i| i.path.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names, ["old.tmp", "Setup"]);
-        assert_eq!(temp.bytes, Some(700));
-        assert_eq!(s[2].items.len(), 1);
-        assert_eq!(
-            s[3].items[0].path,
+            s[2].items[0].path,
             PathBuf::from(r"T:\Downloads\old video.mp4")
         );
-        assert_eq!(s[4].bytes, None, "unreadable leftovers have no size");
-        assert_eq!(s[4].kind, Kind::OpenStorageSense);
     }
 
     #[test]
     fn empty_suggestions_are_left_out() {
         let mut fs = FakeFs::default();
-        fs.add(r"T:\Temp", vec![]);
+        fs.add(r"T:\Downloads", vec![]);
         let places = Places {
-            temp: Some(PathBuf::from(r"T:\Temp")),
+            downloads: Some(PathBuf::from(r"T:\Downloads")),
             recycle_bin: Some((0, 0)),
-            ..Default::default()
         };
         assert!(suggest(&fs, &places, DAY).is_empty());
     }

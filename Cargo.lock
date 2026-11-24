@@ -4046,6 +4046,7 @@ dependencies = [
  "verity-core",
  "verity-ipc",
  "verity-session",
+ "verity-storage",
  "verity-store",
  "verity-story",
  "verity-sys",
@@ -4107,6 +4108,7 @@ dependencies = [
  "tokio",
  "verity-core",
  "windows 0.61.3",
+ "windows-core 0.61.2",
 ]
 
 [[package]]

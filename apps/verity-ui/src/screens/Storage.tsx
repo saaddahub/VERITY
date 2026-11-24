@@ -7,6 +7,8 @@ import {
   type DupGroup,
   type Folder,
   type Health,
+  type JunkCategory,
+  type JunkResult,
   type ScanProgress,
   type ScanSummary,
   type StorageItem,
@@ -294,14 +296,23 @@ export function Storage({ data }: { data: Data }) {
         <Tabs tab={tab} setTab={setTab} />
         <div className="store-body" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
           {tab === "clean" && (
-            <Cleanup
-              items={suggestions}
-              sel={sel}
-              toggle={toggle}
-              busy={busy !== null}
-              onEmpty={() => setConfirm("empty")}
-              onStorageSense={() => void storage.openStorageSense()}
-            />
+            <>
+              <Junk
+                gameRunning={!!data.session && data.session.status.state !== "idle"}
+                afterClean={() => void loadDrives()}
+              />
+              <div className="files-head">
+                <h3>Your files</h3>
+                <p>Chosen items go to the Recycle Bin, so you can put them back.</p>
+              </div>
+              <Cleanup
+                items={suggestions}
+                sel={sel}
+                toggle={toggle}
+                busy={busy !== null}
+                onEmpty={() => setConfirm("empty")}
+              />
+            </>
           )}
           {tab !== "clean" && !summary && (
             <div className="store-empty">
@@ -497,9 +508,6 @@ function ItemRow({
       <span className="isize reading">
         {item.unreadable ? "unknown" : bytes(item.bytes)}
       </span>
-      <button className="link reveal" onClick={() => void storage.reveal(item.path)} aria-label={`Show ${item.name} in File Explorer`}>
-        Show
-      </button>
     </div>
   );
 }
@@ -554,7 +562,6 @@ function FolderView({
               <i style={{ "--w": `${(summary.not_visible / scale) * 100}%` } as React.CSSProperties} />
             </span>
             <span className="isize reading">{bytes(summary.not_visible)}</span>
-            <span />
           </div>
         )}
         {folder.items.length === 0 && <p className="store-msg">This folder is empty.</p>}
@@ -691,18 +698,16 @@ function Cleanup({
   toggle,
   busy,
   onEmpty,
-  onStorageSense,
 }: {
   items: Suggestion[] | null;
   sel: Selection;
   toggle: (p: string, b: number, on: boolean) => void;
   busy: boolean;
   onEmpty: () => void;
-  onStorageSense: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  if (!items) return <p className="store-msg">Looking for things you can clear…</p>;
-  if (items.length === 0) return <p className="store-msg">Nothing to clear right now.</p>;
+  if (!items) return <p className="store-msg">Looking through your files…</p>;
+  if (items.length === 0) return <p className="store-msg">Nothing of yours to clear right now.</p>;
   return (
     <div className="clean">
       {items.map((s) => {
@@ -734,20 +739,11 @@ function Cleanup({
                 </button>
               )}
             </div>
-            {s.bytes === null ? (
-              <span className="isize unknown">Windows can tell you</span>
-            ) : (
-              <span className="isize reading">{bytes(s.bytes)}</span>
-            )}
+            <span className="isize reading">{bytes(s.bytes)}</span>
             <span className="cact">
               {s.kind === "empty_recycle_bin" && (
                 <button className="btn danger" onClick={onEmpty} disabled={busy}>
                   Empty Recycle Bin…
-                </button>
-              )}
-              {s.kind === "open_storage_sense" && (
-                <button className="btn" onClick={onStorageSense}>
-                  Open Storage Sense
                 </button>
               )}
             </span>
@@ -766,6 +762,137 @@ function Cleanup({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+type JunkRow = JunkCategory & { bytes?: number; error?: string; pending: boolean };
+
+/** One-click cleanup of junk Windows and apps rebuild: measured on open,
+ *  deleted for good after one confirmation (docs/14-storage.md, "Junk"). */
+function Junk({ gameRunning, afterClean }: { gameRunning: boolean; afterClean: () => void }) {
+  const [rows, setRows] = useState<JunkRow[] | null>(null);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [cleaning, setCleaning] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [result, setResult] = useState<{ text: string; error?: boolean } | null>(null);
+
+  const measure = useCallback(async (cats: JunkCategory[]) => {
+    const apply = (res: JunkResult[]) =>
+      setRows((rs) =>
+        rs?.map((r) => {
+          const m = res.find((x) => x.id === r.id);
+          return m ? { ...r, pending: false, bytes: m.bytes, error: m.error } : r;
+        }) ?? null,
+      );
+    setRows((rs) => rs?.map((r) => (cats.some((c) => c.id === r.id) ? { ...r, pending: true } : r)) ?? null);
+    // The slow category (Windows Update leftovers) is measured last, so the rest shows at once.
+    for (const group of [cats.filter((c) => !c.slow), cats.filter((c) => c.slow)]) {
+      if (group.length) apply(await storage.junkMeasure(group.map((c) => c.id)));
+    }
+  }, []);
+
+  useEffect(() => {
+    storage
+      .junkCatalog()
+      .then((cats) => {
+        setRows(cats.map((c) => ({ ...c, pending: true })));
+        setChosen(new Set(cats.filter((c) => c.preselected).map((c) => c.id)));
+        return measure(cats);
+      })
+      .catch((e) => setResult({ text: errText(e), error: true }));
+  }, [measure]);
+
+  if (!rows) return <p className="store-msg">{result?.text ?? "Looking for junk…"}</p>;
+  const ready = rows.filter((r) => chosen.has(r.id) && !r.pending && (r.bytes ?? 0) > 0);
+  const total = ready.reduce((s, r) => s + (r.bytes ?? 0), 0);
+
+  const clean = async () => {
+    setAsking(false);
+    setCleaning(true);
+    setResult(null);
+    try {
+      const res = await storage.junkClean(ready.map((r) => r.id));
+      const freed = res.reduce((s, r) => s + (r.bytes ?? 0), 0);
+      const failed = res.filter((r) => r.error).map((r) => rows.find((x) => x.id === r.id)?.title ?? r.id);
+      setResult({
+        text: `Freed ${bytes(freed)}.${failed.length ? ` Could not clean: ${failed.join(", ")}.` : ""}`,
+        error: failed.length > 0 && freed === 0,
+      });
+      await measure(ready);
+      afterClean();
+    } catch (e) {
+      setResult({ text: errText(e), error: true });
+    } finally {
+      setCleaning(false);
+    }
+  };
+
+  return (
+    <div className="junk">
+      <div className="junk-head">
+        <div>
+          <h3>Junk</h3>
+          <p>Deleted for good. Windows and your apps make these again when they need them.</p>
+        </div>
+        <button className="btn primary" onClick={() => setAsking(true)} disabled={cleaning || gameRunning || total === 0}>
+          {cleaning ? "Cleaning…" : total > 0 ? `Clean ${bytes(total)}` : "Nothing to clean"}
+        </button>
+      </div>
+      {gameRunning && <p className="hint junk-note">Cleaning waits until your game session ends.</p>}
+      {result && (
+        <p className={`junk-note ${result.error ? "error-text" : "hint"}`} role="status">
+          {result.text}
+        </p>
+      )}
+      {rows.map((r) => {
+        const empty = !r.pending && !r.error && (r.bytes ?? 0) === 0;
+        return (
+          <div className="jrow" key={r.id}>
+            <span className="tick-cell">
+              <Tick
+                label={`Clean ${r.title.toLowerCase()}`}
+                checked={chosen.has(r.id) && !empty && !r.error}
+                disabled={cleaning || empty || !!r.error}
+                onChange={(on) =>
+                  setChosen((c) => {
+                    const n = new Set(c);
+                    if (on) n.add(r.id);
+                    else n.delete(r.id);
+                    return n;
+                  })
+                }
+              />
+            </span>
+            <div className="ctext">
+              <b>{r.title}</b>
+              <span>{r.detail}</span>
+              {r.error && <span className="jerr">Not available: {r.error}</span>}
+            </div>
+            <span className={`isize ${r.pending || empty || r.error ? "unknown" : "reading"}`}>
+              {r.pending ? (r.slow ? "Checking, this can take a while…" : "Checking…") : r.error ? "unknown" : empty ? "nothing" : bytes(r.bytes ?? 0)}
+            </span>
+          </div>
+        );
+      })}
+      {asking && (
+        <Confirm
+          title={`Delete ${bytes(total)} of junk for good?`}
+          body="Windows and your apps rebuild these files when they need them. This cannot be undone."
+          action="Clean"
+          onCancel={() => setAsking(false)}
+          onConfirm={() => void clean()}
+        >
+          <ul className="confirm-list">
+            {ready.map((r) => (
+              <li key={r.id}>
+                <span className="path">{r.title}</span>
+                <span className="reading">{bytes(r.bytes ?? 0)}</span>
+              </li>
+            ))}
+          </ul>
+        </Confirm>
+      )}
     </div>
   );
 }

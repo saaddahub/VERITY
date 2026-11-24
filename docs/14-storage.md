@@ -74,12 +74,42 @@ names: drive health counters and the Optimize Drives call.
 | Suggestion | Measured how | What Verity does |
 |---|---|---|
 | Recycle Bin | `SHQueryRecycleBinW` | Empties it with `SHEmptyRecycleBinW`, after confirmation |
-| Your temp folder | `%TEMP%` files older than 7 days and not in use | Moves them to the Recycle Bin, after confirmation |
 | Old downloads | Downloads folder files older than 90 days | Lists them; the user ticks what goes |
 | Installers | `.exe`, `.msi`, `.iso` in Downloads | Lists them; the user ticks what goes |
 | Duplicates | As above | Keeps the newest copy ticked off by default; the user decides |
-| Windows leftovers (update cleanup, Delivery Optimization files, previous Windows, thumbnails, crash dumps) | Size where readable, otherwise "Windows can tell you" | Opens Windows' own Storage Sense (`ms-settings:storagesense`). Verity does not delete system files itself |
 | Games | Sizes from the game library | Shows which games take most space; uninstalling is the launcher's job |
+
+## Junk: one-click cleanup
+
+Like Microsoft PC Manager: Verity measures each junk category when the
+screen opens and clears the ticked ones with one button, after one
+confirmation that lists them with their sizes. Junk is deleted for good,
+because Windows and apps rebuild it. Nothing opens File Explorer or Settings.
+
+The catalog (`crates/verity-storage/src/junk.rs`) is fixed; a client can only
+name its ids.
+
+| Category | Runs in | How | Ticked by default |
+|---|---|---|---|
+| Temporary files | app | Disk Cleanup handler "Temporary Files" | yes |
+| Thumbnail cache | app | handler "Thumbnail Cache" | yes |
+| Browser caches (Chrome, Edge, Brave, Firefox) | app | files inside their cache folders only; files in use are skipped; logins and profiles are untouched | yes |
+| Temporary internet files | app | handler "Internet Cache Files" | yes |
+| DirectX shader cache | app | handler "D3D Shader Cache" | no: games recompile shaders, so their first launch can stutter |
+| Delivery Optimization files | service | handler "Delivery Optimization Files" | yes |
+| Error reports, crash dumps and minidumps | service | their handlers | yes |
+| Setup logs, temporary setup files, upgrade logs, old disk-check fragments | service | their handlers | yes |
+| Windows Update leftovers | service | handler "Update Cleanup" (needs admin; measured last) | no: installed updates cannot be uninstalled afterwards |
+
+Never used: Previous Installations, Windows ESD installation files, Upgrade
+Discarded Files, Windows Reset Log Files, Device Driver Packages, User file
+versions, Language Pack, Windows Defender, DownloadsFolder (it empties the
+Downloads folder), Recycle Bin (it has its own confirmed button).
+
+Probed on the dev laptop (`tools/probes` `cleanup`): every handler reports its
+size as the user except Update Cleanup (`ERROR_ELEVATION_REQUIRED`); some
+handlers crash without a progress callback, so one is always passed; a handler
+whose folder does not exist reports "path not found", read as nothing to clean.
 
 ## Deleting
 

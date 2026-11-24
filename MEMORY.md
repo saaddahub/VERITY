@@ -99,6 +99,6 @@ start identity, and smaller ones); chart axis fix. The owner asked for Process
 Lasso, NetLimiter, storage and antivirus features: researched and specified as
 M10 to M13 with owner-approved safety amendments (no kernel driver; Recycle
 Bin plus confirmed permanent delete; CPU rules on non-game apps). Built M12
-Storage end to end and checked it in the real app. The owner's M4/M5 branch
+Storage end to end and checked it in the real app. Then, at the owner's request, Storage became PC Manager-style: one-click junk cleanup (Windows Disk Cleanup handlers in the service, user caches in the app), nothing opens Explorer or Settings. The owner's M4/M5 branch
 was merged to `main` as PR #2; later commits on `m4-m5-session-story` are not
 pushed yet.

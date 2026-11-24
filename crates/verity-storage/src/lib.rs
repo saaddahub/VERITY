@@ -5,6 +5,7 @@
 
 pub mod cleanup;
 pub mod dupes;
+pub mod junk;
 pub mod safety;
 pub mod tree;
 
@@ -54,6 +55,8 @@ pub trait FsApi: Sync {
     fn list_dir(&self, path: &Path) -> Result<Vec<RawEntry>, FsError>;
     /// SHA-256 of the first `limit` bytes, or of the whole file for `None`.
     fn hash(&self, path: &Path, limit: Option<u64>) -> Result<[u8; 32], FsError>;
+    /// Deletes one file for good. Used only for junk-catalog folders.
+    fn remove_file(&self, path: &Path) -> Result<(), FsError>;
 }
 
 /// The real file system, through `verity-sys`.
@@ -106,6 +109,10 @@ impl FsApi for RealFs {
         }
         Ok(h.finalize().into())
     }
+
+    fn remove_file(&self, path: &Path) -> Result<(), FsError> {
+        std::fs::remove_file(path).map_err(|e| FsError::Other(e.to_string()))
+    }
 }
 
 /// An in-memory file system for tests.
@@ -113,6 +120,7 @@ impl FsApi for RealFs {
 pub(crate) mod fake {
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
 
     use super::*;
 
@@ -121,6 +129,9 @@ pub(crate) mod fake {
         pub dirs: HashMap<PathBuf, Vec<RawEntry>>,
         pub contents: HashMap<PathBuf, Vec<u8>>,
         pub unreadable: Vec<PathBuf>,
+        /// Files that refuse deletion (in use).
+        pub locked: Vec<PathBuf>,
+        pub removed: Mutex<Vec<PathBuf>>,
     }
 
     pub fn file(name: &str, alloc: u64, modified: u64) -> RawEntry {
@@ -169,6 +180,16 @@ pub(crate) mod fake {
             let data = self.contents.get(path).ok_or(FsError::NotReadable)?;
             let n = limit.map_or(data.len(), |l| data.len().min(l as usize));
             Ok(Sha256::digest(&data[..n]).into())
+        }
+
+        fn remove_file(&self, path: &Path) -> Result<(), FsError> {
+            if self.locked.iter().any(|p| p == path) {
+                return Err(FsError::Other("in use".into()));
+            }
+            if let Ok(mut r) = self.removed.lock() {
+                r.push(path.to_path_buf());
+            }
+            Ok(())
         }
     }
 }

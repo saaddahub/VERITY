@@ -5,6 +5,7 @@
 import type {
   Folder,
   Game,
+  JunkCategory,
   Health,
   ScanSummary,
   Session,
@@ -227,19 +228,6 @@ const suggestions: Suggestion[] = [
     kind: "empty_recycle_bin",
     bytes: 3.1 * GB,
     items: [],
-    preselected: false,
-  },
-  {
-    id: "temp",
-    title: "Old temporary files",
-    detail: "Left behind by apps and installers, untouched for over a week.",
-    kind: "delete",
-    bytes: 1.4 * GB,
-    preselected: true,
-    items: [
-      { path: "C:\\Users\\you\\AppData\\Local\\Temp\\sample-setup-cache", bytes: 1.1 * GB, modified: ftNow - 30 * FT_DAY, is_dir: true },
-      { path: "C:\\Users\\you\\AppData\\Local\\Temp\\sample.tmp", bytes: 0.3 * GB, modified: ftNow - 12 * FT_DAY, is_dir: false },
-    ],
   },
   {
     id: "installers",
@@ -247,19 +235,35 @@ const suggestions: Suggestion[] = [
     detail: "Setup files are usually not needed once the app is installed.",
     kind: "delete",
     bytes: 5.6 * GB,
-    preselected: false,
     items: [{ path: "C:\\Users\\you\\Downloads\\sample-installer.iso", bytes: 5.6 * GB, modified: ftNow - 120 * FT_DAY, is_dir: false }],
   },
-  {
-    id: "windows",
-    title: "Windows leftovers",
-    detail: "Update files, a previous Windows installation and crash reports. Windows' own Storage Sense removes these safely.",
-    kind: "open_storage_sense",
-    bytes: null,
-    items: [],
-    preselected: false,
-  },
 ];
+/* Junk sizes are the dev laptop's, from tools/probes cleanup (2026-11-24); browser is a sample. */
+const MB = 1024 ** 2;
+const junkSizes: Record<string, number> = {
+  temp: 1.3 * MB, thumbnails: 164.2 * MB, browser: 412 * MB, internet: 4.4 * MB, shaders: 0.8 * MB,
+  delivery: 16 * MB, error_reports: 0.8 * MB, memory_dumps: 0, minidumps: 0, setup_logs: 0,
+  setup_temp: 0, upgrade_logs: 0.3 * MB, chkdsk: 0, updates: 190 * MB,
+};
+const junkCatalog: JunkCategory[] = [
+  ["temp", "Temporary files", "Files apps left in your temp folder and not used for a week.", "app", true],
+  ["thumbnails", "Thumbnail cache", "Picture previews File Explorer redraws when you next open a folder.", "app", true],
+  ["browser", "Browser caches", "Saved copies of web pages in Chrome, Edge, Brave and Firefox. Close the browser first; open files are skipped. You stay signed in.", "app", true],
+  ["internet", "Temporary internet files", "The older Windows web cache some apps still use.", "app", true],
+  ["shaders", "DirectX shader cache", "Games rebuild these, so the first launch of each game can stutter for a while afterwards.", "app", false],
+  ["delivery", "Delivery Optimization files", "Update pieces Windows keeps to share with other PCs.", "service", true],
+  ["error_reports", "Error reports", "Crash reports already sent to, or never needed by, Microsoft.", "service", true],
+  ["memory_dumps", "Crash memory dumps", "Large files Windows saved after a crash. Only useful to diagnose that crash.", "service", true],
+  ["minidumps", "Crash minidumps", "Small crash records, only useful to diagnose an old crash.", "service", true],
+  ["setup_logs", "Setup logs", "Logs left by Windows setup.", "service", true],
+  ["setup_temp", "Temporary setup files", "Files installers left behind.", "service", true],
+  ["upgrade_logs", "Upgrade logs", "Logs from past Windows upgrades.", "service", true],
+  ["chkdsk", "Old disk-check fragments", "Pieces saved by old disk checks.", "service", true],
+  ["updates", "Windows Update leftovers", "Old versions of updated Windows files. Afterwards, installed updates cannot be uninstalled. Checking can take a few minutes.", "service", false],
+].map(([id, title, detail, runs, preselected]) => ({
+  id: id as string, title: title as string, detail: detail as string,
+  runs: runs as "app" | "service", preselected: preselected as boolean, slow: id === "updates",
+}));
 const health: Health = {
   disks: [
     {
@@ -310,7 +314,10 @@ export async function preview<T>(cmd: string, args?: Record<string, unknown>): P
     storage_health: health,
   };
   if (cmd === "storage_children") return folderFor(id) as T;
-  if (["storage_delete", "storage_empty_recycle_bin", "storage_optimize", "storage_reveal", "storage_open_storage_sense"].includes(cmd))
+  if (cmd === "storage_junk_catalog") return junkCatalog as T;
+  if (cmd === "storage_junk_measure")
+    return (args?.ids as string[]).map((i) => ({ id: i, bytes: junkSizes[i] ?? 0 })) as T;
+  if (["storage_delete", "storage_empty_recycle_bin", "storage_optimize", "storage_junk_clean"].includes(cmd))
     throw new Error("Not available in the design preview.");
   if (cmd === "story_get") return storyFor(id) as T;
   if (cmd === "session_enable") enabled = Boolean(args?.on);

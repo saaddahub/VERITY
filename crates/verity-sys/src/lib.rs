@@ -2,6 +2,7 @@
 //! Nothing above this crate contains `unsafe`.
 
 pub mod agent;
+pub mod cleanup;
 pub mod elevate;
 pub mod etw;
 pub mod evtlog;

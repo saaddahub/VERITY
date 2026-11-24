@@ -399,8 +399,9 @@ fn main() {
             storage::storage_suggestions,
             storage::storage_delete,
             storage::storage_empty_recycle_bin,
-            storage::storage_reveal,
-            storage::storage_open_storage_sense,
+            storage::storage_junk_catalog,
+            storage::storage_junk_measure,
+            storage::storage_junk_clean,
             storage::storage_health,
             storage::storage_optimize
         ])

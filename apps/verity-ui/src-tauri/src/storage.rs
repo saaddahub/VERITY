@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use verity_storage::safety::{self, Protected};
 use verity_storage::tree::{REPARSE, SYSTEM};
-use verity_storage::{attr, cleanup, dupes, RealFs, Tree, ROOT};
+use verity_storage::{attr, cleanup, dupes, junk, RealFs, Tree, ROOT};
 use verity_sys::shellops::{self, Known};
 
 type Res<T> = Result<T, String>;
@@ -282,24 +282,9 @@ pub async fn storage_duplicates(app: AppHandle) -> Res<Value> {
 #[tauri::command]
 pub async fn storage_suggestions() -> Res<Value> {
     tauri::async_runtime::spawn_blocking(|| {
-        let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
-        let mut leftovers: Vec<PathBuf> = Vec::new();
-        // SystemDrive is "C:" with no backslash, so the path is built as text.
-        if let Ok(drive) = std::env::var("SystemDrive") {
-            leftovers.push(PathBuf::from(format!("{drive}\\Windows.old")));
-        }
-        if let Some(win) = env("SystemRoot") {
-            leftovers.push(win.join("SoftwareDistribution").join("Download"));
-        }
-        if let Some(local) = env("LOCALAPPDATA") {
-            leftovers.push(local.join("CrashDumps"));
-        }
-        leftovers.retain(|p| p.is_dir());
         let places = cleanup::Places {
-            temp: Some(std::env::temp_dir()),
             downloads: shellops::known_folder(Known::Downloads),
             recycle_bin: shellops::recycle_bin_size().ok(),
-            windows_leftovers: leftovers,
         };
         let p = protected();
         let mut out = cleanup::suggest(&RealFs, &places, verity_sys::process::filetime_now());
@@ -311,6 +296,106 @@ pub async fn storage_suggestions() -> Res<Value> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// The junk catalog: what one-click cleanup can clear, and where each runs.
+#[tauri::command]
+pub fn storage_junk_catalog() -> Value {
+    json!(junk::CATALOG)
+}
+
+fn browser_dirs() -> Vec<PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|l| junk::browser_cache_dirs(&RealFs, Path::new(&l)))
+        .unwrap_or_default()
+}
+
+/// Runs the app-side categories (the user's own junk) on a fresh thread each,
+/// since Disk Cleanup handlers need their own COM apartment.
+fn app_side(ids: &[&'static junk::Category], clean: bool) -> Vec<Value> {
+    let volume = format!(
+        "{}\\",
+        std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into())
+    );
+    ids.iter()
+        .map(|c| {
+            let id = c.id;
+            let r: Result<u64, String> = match c.how {
+                junk::How::BrowserCaches => {
+                    let dirs = browser_dirs();
+                    Ok(if clean {
+                        junk::clear_dirs(&RealFs, &dirs)
+                    } else {
+                        junk::measure_dirs(&RealFs, &dirs)
+                    })
+                }
+                junk::How::Handler(h) => {
+                    let v = volume.clone();
+                    std::thread::spawn(move || {
+                        if clean {
+                            verity_sys::cleanup::purge(h, &v)
+                        } else {
+                            verity_sys::cleanup::measure(h, &v).map(|m| m.bytes)
+                        }
+                    })
+                    .join()
+                    .map_err(|_| "the cleanup handler stopped unexpectedly".to_string())
+                    .and_then(|r| r.map_err(|e| e.to_string()))
+                }
+            };
+            match r {
+                Ok(bytes) => json!({ "id": id, "bytes": bytes }),
+                Err(e) => json!({ "id": id, "error": e }),
+            }
+        })
+        .collect()
+}
+
+/// Measures (`clean` false) or clears junk categories: the user's own here,
+/// Windows' machine-wide ones in the service. One result per id.
+async fn junk_run(app: AppHandle, ids: Vec<String>, clean: bool) -> Res<Value> {
+    let mut mine = Vec::new();
+    let mut service = Vec::new();
+    for id in &ids {
+        let c = junk::find(id).ok_or_else(|| format!("{id} is not a cleanup category"))?;
+        match c.runs {
+            junk::Runs::App => mine.push(c),
+            junk::Runs::Service => service.push(c.id),
+        }
+    }
+    let local = tauri::async_runtime::spawn_blocking(move || {
+        let st = app.state::<Storage>();
+        // Measuring may overlap other work; deleting may not.
+        let _busy = if clean {
+            Some(Busy::take(&st.busy)?)
+        } else {
+            None
+        };
+        Ok::<_, String>(app_side(&mine, clean))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let mut out = local;
+    if !service.is_empty() {
+        let method = if clean { "junk.clean" } else { "junk.measure" };
+        match crate::call(method, json!({ "ids": service })).await {
+            Ok(Value::Array(rows)) => out.extend(rows),
+            Ok(_) => {}
+            Err(e) => out.extend(service.iter().map(|id| json!({ "id": id, "error": e }))),
+        }
+    }
+    Ok(json!(out))
+}
+
+#[tauri::command]
+pub async fn storage_junk_measure(app: AppHandle, ids: Vec<String>) -> Res<Value> {
+    junk_run(app, ids, false).await
+}
+
+/// Deletes the chosen junk for good. The screen has already asked.
+#[tauri::command]
+pub async fn storage_junk_clean(app: AppHandle, ids: Vec<String>) -> Res<Value> {
+    junk_run(app, ids, true).await
 }
 
 /// Moves the given items to the Recycle Bin after checking each one again.
@@ -388,14 +473,4 @@ pub async fn storage_health() -> Res<Value> {
 #[tauri::command]
 pub async fn storage_optimize(drive: String) -> Res<Value> {
     crate::call("storage.optimize", json!({ "drive": drive })).await
-}
-
-#[tauri::command]
-pub fn storage_reveal(path: String) -> Res<()> {
-    shellops::reveal(Path::new(&path)).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn storage_open_storage_sense() -> Res<()> {
-    shellops::open_storage_sense().map_err(|e| e.to_string())
 }

@@ -36,8 +36,8 @@ pub struct Service {
     capturing: Arc<tokio::sync::Mutex<()>>,
     presentmon: PathBuf,
     pub session: Handle,
-    /// One Optimize Drives run at a time.
-    optimizing: tokio::sync::Mutex<()>,
+    /// One maintenance job (Optimize Drives, junk cleanup) at a time.
+    maintenance: tokio::sync::Mutex<()>,
 }
 
 #[derive(Deserialize)]
@@ -97,6 +97,12 @@ struct EnableParams {
 #[derive(Deserialize)]
 struct ForegroundParams {
     pid: u32,
+}
+
+#[derive(Deserialize)]
+struct JunkParams {
+    /// Catalog ids (`verity_storage::junk::CATALOG`) that run in the service.
+    ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -168,7 +174,7 @@ impl Service {
                 capturing,
                 presentmon,
                 session,
-                optimizing: tokio::sync::Mutex::new(()),
+                maintenance: tokio::sync::Mutex::new(()),
             },
             task,
         )
@@ -352,24 +358,59 @@ impl Service {
             (Some(c), None) if c.is_ascii_alphabetic() => c,
             _ => return Err(invalid("drive must be a letter like C")),
         };
-        let idle = self
-            .session
-            .view
-            .lock()
-            .map(|v| v.status.get("state").and_then(Value::as_str) == Some("idle"))
-            .unwrap_or(false);
-        if !idle {
+        if !self.session_idle() {
             return Err(invalid("Optimize waits until no game session is running"));
         }
         let _one_at_a_time = self
-            .optimizing
+            .maintenance
             .try_lock()
-            .map_err(|_| invalid("Optimize is already running"))?;
+            .map_err(|_| invalid("Verity is already doing drive maintenance"))?;
         let code = tokio::task::spawn_blocking(move || crate::storage::optimize(letter))
             .await
             .map_err(internal)?
             .map_err(internal)?;
         Ok(json!({ "drive": letter.to_ascii_uppercase().to_string(), "result": code }))
+    }
+
+    /// No game session is arming or running.
+    fn session_idle(&self) -> bool {
+        self.session
+            .view
+            .lock()
+            .map(|v| v.status.get("state").and_then(Value::as_str) == Some("idle"))
+            .unwrap_or(false)
+    }
+
+    /// Measures (`clean` false) or clears machine-wide junk categories through
+    /// Windows' Disk Cleanup handlers. Only service-run catalog ids are accepted.
+    async fn junk(&self, p: JunkParams, clean: bool) -> Result<Value, RpcError> {
+        use verity_storage::junk::{find, How, Runs};
+        let mut handlers = Vec::new();
+        for id in &p.ids {
+            match find(id) {
+                Some(c) if c.runs == Runs::Service => match c.how {
+                    How::Handler(h) => handlers.push((c.id, h)),
+                    How::BrowserCaches => return Err(invalid(format!("{id} runs in the app"))),
+                },
+                _ => return Err(invalid(format!("{id} is not a service cleanup category"))),
+            }
+        }
+        let _one_at_a_time = if clean {
+            if !self.session_idle() {
+                return Err(invalid("Cleaning waits until no game session is running"));
+            }
+            Some(
+                self.maintenance
+                    .try_lock()
+                    .map_err(|_| invalid("Verity is already doing drive maintenance"))?,
+            )
+        } else {
+            None
+        };
+        let results = tokio::task::spawn_blocking(move || crate::storage::junk(&handlers, clean))
+            .await
+            .map_err(internal)?;
+        Ok(Value::Array(results))
     }
 
     fn story(&self, id: i64) -> Result<crate::story::StoryOut, RpcError> {
@@ -480,6 +521,8 @@ impl Handler for Service {
                 Ok(json!({ "disks": disks, "volumes": volumes }))
             }
             "storage.optimize" => self.storage_optimize(params(p)?).await,
+            "junk.measure" => self.junk(params(p)?, false).await,
+            "junk.clean" => self.junk(params(p)?, true).await,
 
             "story.get" => {
                 let p: IdParams = params(p)?;
