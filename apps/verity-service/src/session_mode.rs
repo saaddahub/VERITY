@@ -41,26 +41,19 @@ const ASK_AFTER_S: u32 = 10;
 const ASK_GPU_PCT: f32 = 20.0;
 const MAX_NOTICES: usize = 50;
 
-/// Session-scoped system changes. M3 (Actions and journal) supplies the real
-/// implementation; until then nothing is changed and nothing needs reverting.
+/// Session-scoped system changes (M3, `crate::actions::JournalActions`).
 pub trait SessionActions: Send {
-    fn apply(&mut self, game_pid: u32, profile: &Profile);
-    fn on_new_process(&mut self, pid: u32, image: &str);
+    fn apply(&mut self, game: ProcId, profile: &Profile);
+    fn on_new_process(&mut self, pid: u32, create_time: u64);
+    /// The agent's foreground and audio reports, for the exclusion list.
+    fn foreground(&mut self, pid: u32);
+    fn audio(&mut self, pids: Vec<u32>);
     fn pause(&mut self);
     fn resume(&mut self);
-    fn revert_all(&mut self);
-}
-
-// shortcut: no session actions until the M3 action framework lands; the hooks
-// are called at the right moments so M3 only has to implement this trait.
-pub struct NoActions;
-
-impl SessionActions for NoActions {
-    fn apply(&mut self, _: u32, _: &Profile) {}
-    fn on_new_process(&mut self, _: u32, _: &str) {}
-    fn pause(&mut self) {}
-    fn resume(&mut self) {}
-    fn revert_all(&mut self) {}
+    /// Puts back everything; a line for the user when something was kept or failed.
+    fn revert_all(&mut self) -> Option<String>;
+    /// Once a second: retries reverts that had to wait.
+    fn tick(&mut self);
 }
 
 pub enum Msg {
@@ -74,6 +67,8 @@ pub enum Msg {
         oneshot::Sender<Result<(), String>>,
     ),
     Foreground(u32),
+    /// Processes with an active audio session, from the agent.
+    Audio(Vec<u32>),
     LibraryChanged,
     Answer {
         exe: String,
@@ -207,14 +202,19 @@ pub fn start(
     store: Arc<Mutex<Store>>,
     capturing: Arc<tokio::sync::Mutex<()>>,
     presentmon: PathBuf,
+    startup_notice: Option<String>,
 ) -> (Handle, JoinHandle<()>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let view = Arc::new(Mutex::new(View::default()));
+    if let Some(text) = startup_notice {
+        lock(&view).notice("info", text, None, None);
+    }
     let enabled = lock(&store)
         .setting(SETTING_ENABLED)
         .ok()
         .flatten()
         .is_none_or(|v| v != "0");
+    let actions = Box::new(crate::actions::JournalActions::new(store.clone()));
     let runner = Runner {
         store,
         capturing,
@@ -222,7 +222,7 @@ pub fn start(
         view: view.clone(),
         tx: tx.clone(),
         machine: Machine::new(enabled),
-        actions: Box::new(NoActions),
+        actions,
         library: Vec::new(),
         devices: verity_sys::games::dos_devices(),
         procs: HashMap::new(),
@@ -403,7 +403,7 @@ impl Runner {
                     });
                 }
                 if self.watcher {
-                    self.actions.on_new_process(pid, &image);
+                    self.actions.on_new_process(pid, create_time);
                 }
                 let game = self.game_for(&image);
                 let proc = ProcId {
@@ -455,7 +455,11 @@ impl Runner {
                 let r = self.manual_start(pid, exe.as_deref()).await;
                 let _ = reply.send(r);
             }
-            Msg::Foreground(pid) => self.on_foreground(pid).await,
+            Msg::Foreground(pid) => {
+                self.actions.foreground(pid);
+                self.on_foreground(pid).await
+            }
+            Msg::Audio(pids) => self.actions.audio(pids),
             Msg::LibraryChanged => self.refresh_library(),
             Msg::Answer { exe, answer } => self.on_answer(&exe, &answer).await,
         }
@@ -529,6 +533,7 @@ impl Runner {
     }
 
     async fn on_tick(&mut self) {
+        self.actions.tick();
         if let Some(proc) = self.wanted.take() {
             if self.running.is_none() && self.session_proc() == Some(proc) {
                 self.start_capture(proc);
@@ -656,9 +661,20 @@ impl Runner {
             Command::StopCapture { keep } => self.stop_capture(keep),
             Command::ApplyProfile { game, game_pid } => {
                 let profile = self.profile_for(&game);
-                self.actions.apply(game_pid, &profile);
+                let proc = self
+                    .session_proc()
+                    .filter(|p| p.pid == game_pid)
+                    .unwrap_or(ProcId {
+                        pid: game_pid,
+                        start: 0,
+                    });
+                self.actions.apply(proc, &profile);
             }
-            Command::Revert => self.actions.revert_all(),
+            Command::Revert => {
+                if let Some(text) = self.actions.revert_all() {
+                    self.notice("info", text, None, None);
+                }
+            }
             Command::StartWatcher { .. } => self.watcher = true,
             Command::StopWatcher => self.watcher = false,
             Command::PauseThrottling => self.actions.pause(),

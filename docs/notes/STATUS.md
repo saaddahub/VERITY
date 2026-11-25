@@ -68,6 +68,41 @@ Verified on the dev laptop by `apps/verity-cli/tests/record_e2e.rs` (elevated).
 - database calls run inline on the async runtime
 - framegen has no `--gpu-load` yet (`--hitch-on-event` added in M5)
 
+## M3 — Actions and journal: complete (2026-11-26)
+
+Built here (see `docs/notes/decisions.md`). Crates: `verity-actions` (catalog,
+journal protocol, exclusion list, session runner), `verity-core::actions`
+(OS traits and journal types), `verity-sys::actions` / `undocumented` /
+`restore`, `verity-store::journal`, `verity-ipc::agent`.
+
+**Acceptance, all verified on the dev laptop**
+- Each of the 7 actions: a real integration test applies, verifies, reverts
+  and compares with the snapshot, then repeats with drift and gets
+  `superseded` (`cargo test -p verity-actions --test real -- --ignored
+  --test-threads=1`: 10 passed). `sched.background_cpusets` is "not
+  applicable" on this non-hybrid CPU, as designed; `display.max_refresh` was
+  run 60 -> 144 Hz and back.
+- Unit tests against fakes for apply, revert, revert-after-drift, dry-run and
+  failed apply for every action (18 tests).
+- `verity actions plan` prints the exact change and makes none (CLI and
+  `plan_changes_nothing`).
+- Crash between `pending` and `applied`: recovered from the database file
+  (`crash_recovery_from_the_database_file`). Crash after `applied`:
+  `taskkill /f` on the service, restart, power mode and efficiency mode put
+  back and a notice shown (`killed_service_after_apply_is_recovered_at_start`).
+- Exclusion list: a process playing sound, the foreground process and every
+  session-0 process are never eligible (fakes and `exclusions_on_real_processes`).
+- A standard-user CLI is refused `actions.apply power.session_overlay`
+  (error -32005); the power mode stayed Balanced.
+- Restore point: asked before the first persistent change; Windows had
+  already made one that day, so Verity stopped and asked; with `--yes` Game
+  Mode was turned on, and `verity actions revert` turned it back off.
+
+**Not done**
+- `verity journal list --session` filter, and `journal.changed` notifications.
+- Machine-wide startup items (HKLM).
+- The power mode is not re-applied when the charger is plugged in mid-session.
+
 ## M4 — Session Mode: built, not complete (2026-11-17)
 
 Branch `m4-m5-session-story`. Verified on the dev laptop by
@@ -91,11 +126,16 @@ Branch `m4-m5-session-story`. Verified on the dev laptop by
 - Profiles (default and per game), `verity session|games|profile`, Games screen,
   session start/end notices, "Is X a game?" question
 
+**Done with M3 (2026-11-26)**
+- Session actions are real: power mode, efficiency mode for background apps
+  (and efficiency cores on hybrid CPUs), applied when the game becomes active
+  and put back at exit, pause and panic. Verified by `actions_e2e`
+  `session_treats_background_apps_and_puts_them_back`: a background app got
+  efficiency mode at session start, one started mid-session too, the game was
+  untouched, all put back at exit. `taskkill /f` on the service: everything
+  put back at restart.
+
 **Not done**
-- Session actions: the `SessionActions` trait is a no-op until M3 lands, so
-  the criteria "a background process started mid-session receives the
-  throttling treatment and is restored" and "everything reverted" have nothing
-  to act on yet
 - Library spot-check of five games: only three are installed; no Epic games
 - Manual: suspend/resume mid-session, and 15 minutes of a real game with audio,
   voice chat and capture software

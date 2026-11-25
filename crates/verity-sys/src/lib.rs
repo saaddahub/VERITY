@@ -1,6 +1,7 @@
 //! All `unsafe` code and raw Win32 calls, behind safe wrappers.
 //! Nothing above this crate contains `unsafe`.
 
+pub mod actions;
 pub mod agent;
 pub mod cleanup;
 pub mod elevate;
@@ -12,10 +13,12 @@ pub mod paths;
 pub mod pdh;
 pub mod pipe;
 pub mod process;
+pub mod restore;
 mod security;
 pub mod shellops;
 pub mod story_sampler;
 mod system;
+pub mod undocumented;
 pub mod wmi;
 
 pub use system::{displays, WinSystemInfo};

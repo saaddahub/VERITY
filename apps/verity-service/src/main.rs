@@ -1,5 +1,6 @@
 //! The Verity Windows service (LocalSystem). Registered by `verity service install`.
 
+mod actions;
 mod methods;
 mod session_mode;
 mod storage;
@@ -47,13 +48,16 @@ fn run() -> anyhow::Result<()> {
         tracing::warn!("could not clear an old kernel trace: {e}");
     }
     let store = verity_store::Store::open(&data.join("verity.db")).context("open database")?;
+    // Crash recovery: session changes left open by a crash or power cut are
+    // put back before anything else (docs/05-actions.md).
+    let recovered = actions::recover(&store);
     // PresentMon sits beside this binary in the install directory, which
     // standard users cannot write to; its hash is checked before every launch.
     let presentmon =
         std::env::current_exe()?.with_file_name(verity_telemetry::presentmon::FILE_NAME);
     let (service, session_task) = {
         let _enter = rt.enter();
-        methods::Service::new(store, presentmon.clone())
+        methods::Service::new(store, presentmon.clone(), recovered)
     };
     let service = Arc::new(service);
     let session = service.session.clone();

@@ -113,3 +113,70 @@ impl Drop for Hotkey {
         }
     }
 }
+
+/// Pids of processes with an active audio session on any speaker or
+/// microphone, so background actions leave them alone (docs/05-actions.md).
+/// Reads no names or titles.
+pub fn audio_pids() -> Result<Vec<u32>, OsError> {
+    use windows::core::Interface;
+    use windows::Win32::Media::Audio::{
+        eAll, AudioSessionStateActive, IAudioSessionControl2, IAudioSessionManager2,
+        IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
+
+    struct Com;
+    impl Drop for Com {
+        fn drop(&mut self) {
+            // SAFETY: balances the successful CoInitializeEx below.
+            unsafe { CoUninitialize() };
+        }
+    }
+    // SAFETY: no preconditions; balanced by `Com` (also on S_FALSE).
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
+        .ok()
+        .map_err(hresult("CoInitializeEx"))?;
+    let _com = Com;
+    let mut out = Vec::new();
+    // SAFETY: COM is initialized on this thread; every interface below is
+    // used on this thread and released before `_com` drops.
+    unsafe {
+        let en: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+            .map_err(hresult("CoCreateInstance(MMDeviceEnumerator)"))?;
+        let devices = en
+            .EnumAudioEndpoints(eAll, DEVICE_STATE_ACTIVE)
+            .map_err(hresult("IMMDeviceEnumerator::EnumAudioEndpoints"))?;
+        for i in 0..devices
+            .GetCount()
+            .map_err(hresult("IMMDeviceCollection::GetCount"))?
+        {
+            let Ok(device) = devices.Item(i) else {
+                continue;
+            };
+            let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) else {
+                continue;
+            };
+            let Ok(sessions) = mgr.GetSessionEnumerator() else {
+                continue;
+            };
+            for k in 0..sessions.GetCount().unwrap_or(0) {
+                let Ok(control) = sessions.GetSession(k) else {
+                    continue;
+                };
+                let Ok(c2) = control.cast::<IAudioSessionControl2>() else {
+                    continue;
+                };
+                if c2.GetState().ok() == Some(AudioSessionStateActive) {
+                    if let Ok(pid) = c2.GetProcessId() {
+                        if pid != 0 && !out.contains(&pid) {
+                            out.push(pid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}

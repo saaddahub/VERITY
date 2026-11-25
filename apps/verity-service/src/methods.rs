@@ -9,21 +9,35 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
+use verity_actions::{catalog, Engine};
+use verity_core::actions::{
+    Executor, JournalFilter, JournalRow, JournalState, JournalStore, NewJournalRow,
+};
 use verity_core::metrics::Thresholds;
 use verity_core::telemetry::{resolve_target, ProcessApi};
 use verity_core::SystemInfoApi;
-use verity_ipc::dispatch::Handler;
+use verity_ipc::dispatch::{Caller, Handler};
 use verity_ipc::{
-    RpcError, CAPTURE_FAILED, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, NOT_FOUND,
+    RpcError, CAPTURE_FAILED, FORBIDDEN, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND,
+    NOT_FOUND,
 };
 use verity_session::machine::Input;
 use verity_store::{NewGame, NewSession, Store, StoreError};
+use verity_sys::actions::WinActionSys;
 use verity_sys::pdh::PdhCounters;
 use verity_sys::process::{qpc_freq, WinProcesses};
 use verity_sys::WinSystemInfo;
 use verity_telemetry::capture::{self, CaptureConfig};
 
+use crate::actions::Locked;
 use crate::session_mode::{self, Handle, Msg};
+
+/// Largest params and snapshot an agent may journal (bytes of JSON).
+const MAX_AGENT_PARAMS: usize = 8 * 1024;
+const MAX_AGENT_SNAPSHOT: usize = 64 * 1024;
+/// Most journal rows `journal.list` returns (the newest).
+const MAX_JOURNAL_ROWS: usize = 500;
+const SETTING_RESTORE_POINT: &str = "actions.restore_point_done";
 
 /// Longest capture a client may ask for.
 const MAX_DURATION_S: f64 = 6.0 * 3600.0;
@@ -97,6 +111,43 @@ struct EnableParams {
 #[derive(Deserialize)]
 struct ForegroundParams {
     pid: u32,
+    /// Processes with an active audio session, when the agent can tell.
+    audio: Option<Vec<u32>>,
+}
+
+#[derive(Deserialize)]
+struct ActionParams {
+    id: String,
+    #[serde(default)]
+    params: Value,
+}
+
+#[derive(Deserialize)]
+struct JournalListParams {
+    #[serde(default)]
+    open_only: bool,
+}
+
+#[derive(Deserialize)]
+struct JournalRecordParams {
+    txn_id: String,
+    action_id: String,
+    params: Value,
+    snapshot: Value,
+}
+
+#[derive(Deserialize)]
+struct JournalMarkParams {
+    id: i64,
+    state: String,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RestorePointParams {
+    /// The user agreed to go on without a new restore point.
+    #[serde(default)]
+    proceed_without: bool,
 }
 
 #[derive(Deserialize)]
@@ -163,11 +214,19 @@ fn valid_exe_path(s: &str) -> Result<PathBuf, RpcError> {
 }
 
 impl Service {
-    pub fn new(store: Store, presentmon: PathBuf) -> (Self, tokio::task::JoinHandle<()>) {
+    pub fn new(
+        store: Store,
+        presentmon: PathBuf,
+        startup_notice: Option<String>,
+    ) -> (Self, tokio::task::JoinHandle<()>) {
         let store = Arc::new(Mutex::new(store));
         let capturing = Arc::new(tokio::sync::Mutex::new(()));
-        let (session, task) =
-            session_mode::start(store.clone(), capturing.clone(), presentmon.clone());
+        let (session, task) = session_mode::start(
+            store.clone(),
+            capturing.clone(),
+            presentmon.clone(),
+            startup_notice,
+        );
         (
             Self {
                 store,
@@ -419,8 +478,281 @@ impl Service {
     }
 }
 
+fn action(id: &str) -> Result<&'static dyn verity_actions::Action, RpcError> {
+    catalog::find(id).ok_or_else(|| invalid(format!("{id} is not in the action catalog")))
+}
+
+fn action_error(e: verity_actions::ActionError) -> RpcError {
+    match e {
+        verity_actions::ActionError::Params(_) | verity_actions::ActionError::NotApplicable(_) => {
+            invalid(e.to_string())
+        }
+        e => internal(e),
+    }
+}
+
+/// Rows a caller may see: every service row, and only their own app rows.
+fn visible(row: &JournalRow, caller: &Caller) -> bool {
+    row.row.executor == Executor::Service || (!caller.sid.is_empty() && row.row.owner == caller.sid)
+}
+
+/// Whether Session Mode is arming or running a session.
+fn session_running(session: &Handle) -> bool {
+    let view = session.view.lock().unwrap_or_else(|p| p.into_inner());
+    view.status
+        .get("state")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s != "idle")
+}
+
+impl Service {
+    fn engine<R>(&self, f: impl FnOnce(&Engine) -> R) -> R {
+        let journal = Locked(&self.store);
+        f(&Engine {
+            sys: &WinActionSys,
+            journal: &journal,
+        })
+    }
+
+    /// The action and journal methods (docs/02-architecture.md); None for
+    /// any other method.
+    async fn actions_call(
+        &self,
+        caller: &Caller,
+        method: &str,
+        p: &Value,
+    ) -> Option<Result<Value, RpcError>> {
+        let p = p.clone();
+        Some(match method {
+            "actions.catalog" => {
+                to_json(catalog::all().iter().map(|a| a.info()).collect::<Vec<_>>())
+            }
+            "actions.plan" => params(p).and_then(|a| self.action_plan(a)),
+            "actions.apply" => params(p).and_then(|a| self.action_apply(caller, a)),
+            "actions.revert" => {
+                params::<IdParams>(p).and_then(|i| self.action_revert(caller, i.id))
+            }
+            "journal.list" => {
+                params::<JournalListParams>(p).and_then(|l| self.journal_list(caller, l.open_only))
+            }
+            "journal.revert_all" => self.journal_revert_all(caller).await,
+            "journal.record" => params(p).and_then(|r| self.journal_record(caller, r)),
+            "journal.mark" => params(p).and_then(|m| self.journal_mark(caller, m)),
+            "system.restore_point" => match params(p) {
+                Ok(r) => self.restore_point(r).await,
+                Err(e) => Err(e),
+            },
+            _ => return None,
+        })
+    }
+
+    fn action_plan(&self, p: ActionParams) -> Result<Value, RpcError> {
+        let a = action(&p.id)?;
+        if a.info().executor != Executor::Service {
+            return Err(invalid(format!(
+                "{} runs in the app, not the service",
+                p.id
+            )));
+        }
+        let plan = self.engine(|eng| {
+            let prepared = a.prepare(eng.sys, p.params)?;
+            a.plan(eng.sys, &prepared)
+        });
+        match plan {
+            Ok(change) => Ok(json!({ "change": change })),
+            Err(verity_actions::ActionError::NotApplicable(why)) => {
+                Ok(json!({ "change": null, "not_applicable": why }))
+            }
+            Err(e) => Err(action_error(e)),
+        }
+    }
+
+    fn action_apply(&self, caller: &Caller, p: ActionParams) -> Result<Value, RpcError> {
+        let a = action(&p.id)?;
+        if a.info().executor != Executor::Service {
+            return Err(invalid(format!(
+                "{} runs in the app, not the service",
+                p.id
+            )));
+        }
+        if !caller.elevated {
+            return Err(RpcError::new(
+                FORBIDDEN,
+                "changing this for the whole PC needs Verity run as administrator",
+            ));
+        }
+        let txn = format!("manual-{}", verity_store::utc_now());
+        let id = self
+            .engine(|eng| eng.apply(a, p.params, &txn, ""))
+            .map_err(action_error)?;
+        tracing::info!(id, action = %p.id, "action applied on request");
+        Ok(json!({ "id": id }))
+    }
+
+    fn action_revert(&self, caller: &Caller, id: i64) -> Result<Value, RpcError> {
+        let row = Locked(&self.store)
+            .journal_get(id)
+            .map_err(internal)?
+            .filter(|r| visible(r, caller))
+            .ok_or_else(|| RpcError::new(NOT_FOUND, format!("journal entry {id} not found")))?;
+        if row.row.executor != Executor::Service {
+            return Err(invalid("this change was made by the app; undo it there"));
+        }
+        to_json(self.engine(|eng| eng.revert(&row)))
+    }
+
+    fn journal_list(&self, caller: &Caller, open_only: bool) -> Result<Value, RpcError> {
+        let rows = Locked(&self.store)
+            .journal_list(&JournalFilter {
+                open_only,
+                ..Default::default()
+            })
+            .map_err(internal)?;
+        let mut rows: Vec<_> = rows.into_iter().filter(|r| visible(r, caller)).collect();
+        let skip = rows.len().saturating_sub(MAX_JOURNAL_ROWS);
+        rows.drain(..skip);
+        to_json(rows)
+    }
+
+    /// "Undo everything": ends a running session's changes, reverts every open
+    /// service change, and hands back the caller's own app changes to undo.
+    async fn journal_revert_all(&self, caller: &Caller) -> Result<Value, RpcError> {
+        if session_running(&self.session) && !self.session.input(Input::Panic).await {
+            return Err(internal("Session Mode did not respond"));
+        }
+        let journal = Locked(&self.store);
+        let open = journal
+            .journal_list(&JournalFilter {
+                executor: Some(Executor::Service),
+                open_only: true,
+                ..Default::default()
+            })
+            .map_err(internal)?;
+        let outcomes = self.engine(|eng| eng.revert_all(&open));
+        let agent = if caller.sid.is_empty() {
+            Vec::new()
+        } else {
+            journal
+                .journal_list(&JournalFilter {
+                    executor: Some(Executor::Agent),
+                    owner: Some(&caller.sid),
+                    open_only: true,
+                    ..Default::default()
+                })
+                .map_err(internal)?
+        };
+        Ok(json!({
+            "service": outcomes
+                .iter()
+                .map(|(id, o)| json!({ "id": id, "result": o }))
+                .collect::<Vec<_>>(),
+            "agent_rows": agent,
+        }))
+    }
+
+    fn journal_record(&self, caller: &Caller, p: JournalRecordParams) -> Result<Value, RpcError> {
+        let a = action(&p.action_id)?;
+        if a.info().executor != Executor::Agent {
+            return Err(invalid(format!("{} runs in the service", p.action_id)));
+        }
+        if caller.sid.is_empty() {
+            return Err(RpcError::new(
+                FORBIDDEN,
+                "the service could not tell who is asking",
+            ));
+        }
+        if p.txn_id.is_empty() || p.txn_id.len() > 100 {
+            return Err(invalid("txn_id must be 1 to 100 characters"));
+        }
+        if p.params.to_string().len() > MAX_AGENT_PARAMS
+            || p.snapshot.to_string().len() > MAX_AGENT_SNAPSHOT
+        {
+            return Err(invalid("params or snapshot too large"));
+        }
+        let id = Locked(&self.store)
+            .journal_insert(&NewJournalRow {
+                txn_id: p.txn_id,
+                action_id: p.action_id,
+                scope: a.info().scope,
+                executor: Executor::Agent,
+                params: p.params,
+                snapshot: p.snapshot,
+                owner: caller.sid.clone(),
+            })
+            .map_err(internal)?;
+        Ok(json!({ "id": id }))
+    }
+
+    fn journal_mark(&self, caller: &Caller, p: JournalMarkParams) -> Result<Value, RpcError> {
+        let journal = Locked(&self.store);
+        let row = journal
+            .journal_get(p.id)
+            .map_err(internal)?
+            .filter(|r| r.row.executor == Executor::Agent && visible(r, caller))
+            .ok_or_else(|| RpcError::new(NOT_FOUND, format!("journal entry {} not found", p.id)))?;
+        let state = JournalState::parse(&p.state).ok_or_else(|| invalid("unknown state"))?;
+        let allowed = match (row.state, state) {
+            (JournalState::Pending, JournalState::Applied) => true,
+            (JournalState::Pending | JournalState::Applied, s) => matches!(
+                s,
+                JournalState::Reverted | JournalState::RevertFailed | JournalState::Superseded
+            ),
+            _ => false,
+        };
+        if !allowed {
+            return Err(invalid(format!(
+                "cannot move a {} entry to {}",
+                row.state.as_str(),
+                state.as_str()
+            )));
+        }
+        let error: Option<String> = p.error.map(|e| e.chars().take(1024).collect());
+        journal
+            .journal_set_state(p.id, state, error.as_deref())
+            .map_err(internal)?;
+        Ok(json!({ "ok": true }))
+    }
+
+    /// One restore point before Verity's first persistent change
+    /// (docs/09-safety.md section 1.4). Afterwards it reports "done".
+    async fn restore_point(&self, p: RestorePointParams) -> Result<Value, RpcError> {
+        if self
+            .store()?
+            .setting(SETTING_RESTORE_POINT)
+            .map_err(store_error)?
+            .is_some()
+        {
+            return Ok(json!({ "status": "done" }));
+        }
+        let made = tokio::task::spawn_blocking(|| {
+            verity_sys::restore::create("Verity: before its first change")
+        })
+        .await
+        .map_err(internal)?;
+        let status = match &made {
+            Ok(verity_sys::restore::RestorePoint::Created) => "created",
+            Ok(verity_sys::restore::RestorePoint::Skipped) => "skipped",
+            Ok(verity_sys::restore::RestorePoint::Disabled) => "disabled",
+            Err(_) => "failed",
+        };
+        if status == "created" || p.proceed_without {
+            self.store()?
+                .set_setting(SETTING_RESTORE_POINT, status)
+                .map_err(store_error)?;
+        }
+        tracing::info!(status, "restore point");
+        Ok(json!({
+            "status": status,
+            "error": made.err().map(|e| e.to_string()),
+        }))
+    }
+}
+
 impl Handler for Service {
-    async fn call(&self, method: &str, p: Value) -> Result<Value, RpcError> {
+    async fn call(&self, caller: &Caller, method: &str, p: Value) -> Result<Value, RpcError> {
+        if let Some(r) = self.actions_call(caller, method, &p).await {
+            return r;
+        }
         match method {
             "system.info" => to_json(WinSystemInfo.system_info().map_err(internal)?),
             "record.run" => self.record(params(p)?).await,
@@ -510,6 +842,12 @@ impl Handler for Service {
             "agent.foreground" => {
                 let p: ForegroundParams = params(p)?;
                 let _ = self.session.tx.send(Msg::Foreground(p.pid));
+                if let Some(audio) = p.audio {
+                    let _ = self
+                        .session
+                        .tx
+                        .send(Msg::Audio(audio.into_iter().take(4096).collect()));
+                }
                 Ok(json!({ "ok": true }))
             }
 

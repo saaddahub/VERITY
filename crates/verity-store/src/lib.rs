@@ -3,6 +3,7 @@
 pub mod codec;
 pub mod events;
 pub mod games;
+pub mod journal;
 
 pub use events::SessionBounds;
 pub use games::{GameRow, NewGame, SyncResult};
@@ -14,9 +15,10 @@ use verity_core::metrics::Frame;
 use verity_core::telemetry::{CaptureGap, SessionSummary, SysEvent};
 
 /// Numbered migrations; `PRAGMA user_version` records how many have run.
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     include_str!("migrations/001_initial.sql"),
     include_str!("migrations/002_session_mode.sql"),
+    include_str!("migrations/003_journal.sql"),
 ];
 /// Roughly this much play time per frame chunk.
 const CHUNK_SECONDS: u64 = 10;

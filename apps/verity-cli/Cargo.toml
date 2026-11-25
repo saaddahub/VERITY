@@ -12,6 +12,7 @@ path = "src/main.rs"
 verity-core.workspace = true
 verity-sys.workspace = true
 verity-ipc.workspace = true
+verity-actions = { path = "../../crates/verity-actions" }
 verity-telemetry.workspace = true
 serde.workspace = true
 anyhow.workspace = true

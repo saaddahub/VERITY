@@ -54,7 +54,17 @@ pub async fn serve<H: Handler>(
 
 async fn handle<H: Handler>(mut pipe: NamedPipeServer, handler: Arc<H>) -> io::Result<()> {
     let mut conn = Connection::default();
+    let mut identified = false;
     while let Some(frame) = read_frame(&mut pipe).await? {
+        // Windows allows identifying the client only after reading from it.
+        if !identified {
+            identified = true;
+            use std::os::windows::io::AsRawHandle;
+            match verity_sys::pipe::client_identity(pipe.as_raw_handle()) {
+                Ok((sid, elevated)) => conn.caller = crate::dispatch::Caller { sid, elevated },
+                Err(e) => tracing::warn!("could not identify the pipe client: {e}"),
+            }
+        }
         let response = conn.handle(&frame, handler.as_ref()).await;
         write_frame(&mut pipe, &encode(&response)?).await?;
     }

@@ -4,6 +4,7 @@
 // A GUI app: never open a console window, in debug builds too.
 #![windows_subsystem = "windows"]
 
+mod changes;
 mod storage;
 
 use std::collections::HashMap;
@@ -279,18 +280,27 @@ fn report_foreground() {
             Ok(rt) => rt,
             Err(_) => return,
         };
-        let mut last = None;
+        let (mut last, mut last_audio) = (None, None);
+        let mut tick = 0u64;
         loop {
+            tick = tick.wrapping_add(1);
             std::thread::sleep(Duration::from_millis(500));
             let now = verity_sys::agent::foreground_pid();
-            if now.is_some() && now != last {
-                if let Some(pid) = now {
-                    if rt
-                        .block_on(call("agent.foreground", json!({ "pid": pid })))
-                        .is_ok()
-                    {
-                        last = now;
-                    }
+            // Audio sessions every 2 s: background actions skip apps playing sound.
+            let audio = if tick.is_multiple_of(4) {
+                verity_sys::agent::audio_pids().ok().map(|mut a| {
+                    a.sort_unstable();
+                    a
+                })
+            } else {
+                last_audio.clone()
+            };
+            let Some(pid) = now else { continue };
+            // A report at least every 5 s tells the service the app is running.
+            if now != last || audio != last_audio || tick.is_multiple_of(10) {
+                let msg = json!({ "pid": pid, "audio": audio });
+                if rt.block_on(call("agent.foreground", msg)).is_ok() {
+                    (last, last_audio) = (now, audio);
                 }
             }
         }
@@ -319,14 +329,22 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
         "Undo session changes now (Ctrl+Alt+Shift+V)"
     };
     let panic = MenuItem::with_id(app, "panic", panic_label, true, None::<&str>)?;
+    let undo = MenuItem::with_id(
+        app,
+        "undo_all",
+        "Undo all Verity changes",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Verity", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &panic, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &panic, &undo, &quit])?;
     let mut builder = TrayIconBuilder::with_id("verity")
         .tooltip("Verity")
         .menu(&menu)
         .on_menu_event(|app, e| match e.id.as_ref() {
             "open" => show(app),
             "panic" => panic_now(),
+            "undo_all" => changes::undo_all_now(),
             "quit" => app.exit(0),
             _ => {}
         });
@@ -369,6 +387,13 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            changes::changes_catalog,
+            changes::changes_list,
+            changes::changes_startup_items,
+            changes::changes_plan,
+            changes::changes_apply,
+            changes::changes_revert,
+            changes::changes_undo_all,
             session_status,
             session_enable,
             session_stop,

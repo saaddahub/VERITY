@@ -221,14 +221,14 @@ fn gpus() -> Result<Vec<Gpu>, OsError> {
     Ok(out)
 }
 
-fn devmode() -> DEVMODEW {
+pub(crate) fn devmode() -> DEVMODEW {
     DEVMODEW {
         dmSize: std::mem::size_of::<DEVMODEW>() as u16,
         ..Default::default()
     }
 }
 
-fn display_device() -> DISPLAY_DEVICEW {
+pub(crate) fn display_device() -> DISPLAY_DEVICEW {
     DISPLAY_DEVICEW {
         cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
         ..Default::default()
@@ -287,7 +287,7 @@ pub fn displays() -> Vec<Display> {
     out
 }
 
-fn power() -> Result<PowerState, OsError> {
+pub(crate) fn power() -> Result<PowerState, OsError> {
     let mut s = SYSTEM_POWER_STATUS::default();
     // SAFETY: `s` is a valid out-parameter.
     unsafe { GetSystemPowerStatus(&mut s) }.map_err(hresult("GetSystemPowerStatus"))?;

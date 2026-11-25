@@ -13,6 +13,7 @@ verity-store.workspace = true
 verity-storage.workspace = true
 verity-session = { path = "../../crates/verity-session" }
 verity-story = { path = "../../crates/verity-story" }
+verity-actions = { path = "../../crates/verity-actions" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

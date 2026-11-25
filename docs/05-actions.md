@@ -53,6 +53,13 @@ Session end reverts that session's rows in reverse order of application.
 
 At every service start, before anything else: find all rows with scope `session` in state `pending` or `applied`, and revert them in reverse order. Process-targeted snapshots are skipped if the process identity `(pid, creation time)` no longer exists. Log a recovery report and surface it in the UI.
 
+### Agent presence
+
+Background actions also depend on what only the agent can see (the
+foreground window and audio sessions). When the agent has not reported for
+15 seconds, background actions are skipped for that moment and the reason is
+logged; session-wide actions such as the power mode still apply.
+
 ### Process-targeted actions
 
 Snapshots store `(pid, creation time, image name)` and the prior value per process. Revert only touches a process whose identity still matches.
@@ -78,9 +85,9 @@ Background actions never touch:
 
 | ID | What it does | Mechanism | Risk | Default |
 |---|---|---|---|---|
-| `power.session_overlay` | Sets the Windows power mode to best performance while on AC | Undocumented `PowerSetActiveOverlayScheme` in `powrprof.dll` with the best-performance overlay GUID **(verify)** signature and GUIDs; fallback: activate a high-performance scheme with `PowerSetActiveScheme` | Low | On |
+| `power.session_overlay` | Sets the Windows power mode to best performance while on AC | Undocumented `PowerGetActualOverlayScheme(GUID*)` / `PowerSetActiveOverlayScheme(GUID)` in `powrprof.dll`, looked up at run time (`verity-sys::undocumented`). Best performance is `ded574b5-45a0-4f42-8737-46345c09c238`, Balanced `00000000-…`, Best power efficiency `961cc777-2547-4f9d-8174-7d86181b8a7a`. Verified on build 26200: works unelevated and as SYSTEM, changes only `ActiveOverlayAcPowerScheme` while plugged in. Applied only on AC; a revert while on battery waits until AC (it would otherwise write the battery setting). Fallback when the functions are missing: not applicable (no change). | Low | On |
 | `power.session_scheme` | Activates a Verity-owned power scheme for the session | `PowerDuplicateScheme` from the user's scheme once; tune processor settings by their powercfg aliases (energy performance preference, boost mode, minimum unparked cores) with `PowerWriteACValueIndex`; `PowerSetActiveScheme`. Resolve setting GUIDs from `powercfg /aliases` and hard-code them only after **(verify)**. AC values only; never change DC values. | Medium | Off; Lab first |
-| `sched.background_ecoqos` | Marks eligible background processes as efficiency-class | `SetProcessInformation(ProcessPowerThrottling)` with `PROCESS_POWER_THROTTLING_EXECUTION_SPEED` | Low | On |
+| `sched.background_ecoqos` | Marks eligible background processes as efficiency-class | `SetProcessInformation(ProcessPowerThrottling)` with `PROCESS_POWER_THROTTLING_EXECUTION_SPEED`; prior state read with `GetProcessInformation` (verified). A process that set the control bit with the state off (asked not to be slowed) is left alone. | Low | On |
 | `sched.background_cpusets` | On hybrid CPUs, steers eligible background processes to efficiency cores | `GetSystemCpuSetInformation` to find the lowest `EfficiencyClass` set; `SetProcessDefaultCpuSets`. Not applicable on non-hybrid CPUs. Newly started background processes are handled by watching process-start events. | Low | On (hybrid only) |
 | `sched.game_priority` | Raises the game's priority class one step | `SetPriorityClass(ABOVE_NORMAL_PRIORITY_CLASS)` with a handle opened for `PROCESS_SET_INFORMATION` only. If access is denied, skip silently. Never `HIGH`, never `REALTIME`. Not applied to games on the anti-cheat caution list (see `09-safety.md`). | Medium | Off; Lab first |
 | `services.session_pause` | Stops a small allowlisted set of services for the session and restarts them after | Service Control Manager. Allowlist v1: Windows Search indexer only. Snapshot records prior running state and start type; start type is never changed. | Medium | Off |
@@ -93,8 +100,8 @@ Background actions never touch:
 | `gpu.preference` | Sets a game exe to the high-performance GPU | `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`, value named by the full exe path, data `GpuPreference=2;` | Low | Suggested |
 | `display.max_refresh` | Sets the display to its highest refresh rate at the current resolution | `EnumDisplaySettingsExW`, `ChangeDisplaySettingsExW` with test first, then update registry | Low | Suggested |
 | `dx.global_settings` | Enables optimizations for windowed games and variable refresh | Same key, value `DirectXUserGlobalSettings` **(verify)** exact token names | Low | Suggested |
-| `gamemode.enable` | Turns on Game Mode | `HKCU\Software\Microsoft\GameBar` **(verify)** value names | Low | Suggested |
-| `startup.disable_item` | Disables one startup entry the same way Task Manager does | `...\Explorer\StartupApproved\Run` (and `Run32`, `StartupFolder`) binary flag **(verify)** byte layout; never deletes the Run entry itself | Low | Per item, user picks |
+| `gamemode.enable` | Turns on Game Mode | `HKCU\Software\Microsoft\GameBar`: `AutoGameModeEnabled` = 1, and `AllowAutoGameMode` = 1 when present (older builds); either at 0 means off, absent means on. Both present on the dev laptop. | Low | Suggested |
+| `startup.disable_item` | Disables one startup entry the same way Task Manager does | `HKCU\...\Explorer\StartupApproved\Run` and `\StartupFolder`, 12-byte value: first byte odd = disabled (`03 00 00 00` + FILETIME), even = enabled (`02` + zeros); verified against the entries Task Manager wrote on the dev laptop. Current-user items only in v1 (machine-wide items need an HKLM write). Never deletes the Run entry itself. | Low | Per item, user picks |
 
 ### Persistent scope, executed by the service (machine settings, elevated client required)
 

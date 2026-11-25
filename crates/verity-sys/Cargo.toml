@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[features]
+# Undocumented APIs (CLAUDE.md), each with a runtime check and a fallback.
+default = ["undocumented"]
+undocumented = []
+
 [dependencies]
 verity-core.workspace = true
 tokio.workspace = true
@@ -38,4 +43,9 @@ features = [
     "Win32_System_Wmi",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Restore",
+    "Win32_System_Pipes",
+    "Win32_Media_Audio",
 ]

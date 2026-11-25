@@ -3,3 +3,4 @@
 # Impeccable: keep the design contract, not the working files
 .impeccable/*
 !.impeccable/surfaces/
+framegen-truth.csv

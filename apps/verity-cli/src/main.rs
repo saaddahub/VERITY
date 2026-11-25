@@ -1,5 +1,6 @@
 //! `verity` command-line client.
 
+mod actions;
 mod service;
 mod session;
 mod sessions;
@@ -22,7 +23,9 @@ const USAGE: &str = "usage:
   verity session status | start --pid <pid> | start --exe <name> | stop | panic | on | off
   verity games scan | list | add <exe> | remove <id>
   verity profile show [--game <id>] | set [--game <id>] --file profile.json
-  verity story show <session> [--json] | export <session> --html <path>";
+  verity story show <session> [--json] | export <session> --html <path>
+  verity actions list | plan <id> [--param k=v] | apply <id> [--param k=v] [--yes] | revert <journal-id>
+  verity journal list [--open] | revert-all";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -45,6 +48,8 @@ fn main() -> ExitCode {
         ["games", rest @ ..] => session::games(rest),
         ["profile", rest @ ..] => session::profile(rest),
         ["story", rest @ ..] => session::story(rest),
+        ["actions", rest @ ..] => actions::actions(rest),
+        ["journal", rest @ ..] => actions::journal_cmd(rest),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(2);

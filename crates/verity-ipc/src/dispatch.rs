@@ -4,10 +4,20 @@ use serde_json::{json, Value};
 
 use crate::protocol::*;
 
+/// Who is calling, read from the pipe client's token.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Caller {
+    /// The user's SID; empty when Windows would not say.
+    pub sid: String,
+    /// An elevated (administrator) token.
+    pub elevated: bool,
+}
+
 /// The methods behind the pipe. The service implements this.
 pub trait Handler: Send + Sync + 'static {
     fn call(
         &self,
+        caller: &Caller,
         method: &str,
         params: Value,
     ) -> impl Future<Output = Result<Value, RpcError>> + Send;
@@ -17,6 +27,7 @@ pub trait Handler: Send + Sync + 'static {
 #[derive(Default)]
 pub struct Connection {
     greeted: bool,
+    pub caller: Caller,
 }
 
 impl Connection {
@@ -33,7 +44,7 @@ impl Connection {
             if !self.greeted {
                 return Response::err(Some(id), HELLO_REQUIRED, "call hello first");
             }
-            return match handler.call(&req.method, req.params).await {
+            return match handler.call(&self.caller, &req.method, req.params).await {
                 Ok(v) => Response::ok(id, v),
                 Err(e) => Response::err(Some(id), e.code, e.message),
             };
@@ -67,7 +78,7 @@ mod tests {
 
     struct Fake;
     impl Handler for Fake {
-        async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        async fn call(&self, _: &Caller, method: &str, params: Value) -> Result<Value, RpcError> {
             match method {
                 "echo" => Ok(params),
                 "boom" => Err(RpcError::new(INTERNAL_ERROR, "GetSystemPowerStatus failed")),

@@ -4,14 +4,15 @@
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use verity_ipc::dispatch::Handler;
+use verity_ipc::dispatch::{Caller, Handler};
 use verity_ipc::{server, Client, ClientError, Role, RpcError, METHOD_NOT_FOUND};
 
 struct Fake;
 impl Handler for Fake {
-    async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+    async fn call(&self, caller: &Caller, method: &str, params: Value) -> Result<Value, RpcError> {
         match method {
             "echo" => Ok(params),
+            "whoami" => Ok(json!({"sid": caller.sid, "elevated": caller.elevated})),
             other => Err(RpcError::new(
                 METHOD_NOT_FOUND,
                 format!("unknown method {other}"),
@@ -35,6 +36,9 @@ async fn calls_over_a_real_pipe() {
     let mut b = Client::connect(&name, Role::Ui).await.unwrap();
     let sent = json!({"build": 22631});
     assert_eq!(a.call("echo", sent.clone()).await.unwrap(), sent);
+    // The server reads who the client is from its token.
+    let me = a.call("whoami", json!({})).await.unwrap();
+    assert!(me["sid"].as_str().unwrap().starts_with("S-1-5-"), "{me}");
     assert!(matches!(
         b.call("nope", json!({})).await,
         Err(ClientError::Rpc(e)) if e.code == METHOD_NOT_FOUND

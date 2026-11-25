@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 verity-core.workspace = true
 verity-sys.workspace = true
 verity-ipc.workspace = true
+verity-actions = { path = "../../../crates/verity-actions" }
 verity-storage.workspace = true
 serde.workspace = true
 serde_json.workspace = true

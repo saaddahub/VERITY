@@ -2,6 +2,43 @@
 
 Changes from the spec and why. Newest first.
 
+## 2026-11-26 — M3 built by us; agent actions run in the client
+
+The co-developer's M3 had not reached GitHub after 8 days, so the owner chose
+to build it here to unblock M4 ("Build M3 ourselves").
+
+- **Agent actions run in the client process.** The spec has the service call
+  `agent.apply` on the connected agent. Instead the agent (CLI or desktop
+  app) runs per-user actions itself and journals each one in the service
+  first (`journal.record` pending, `journal.mark` applied). Same journal
+  protocol, no service-to-client calls, and the service never writes HKCU.
+  Rows carry the caller's SID, read from its token; only that user can list
+  or change them.
+- **Client identity on the pipe.** The server reads SID and elevation from
+  the client token after the first read. `actions.apply` for service actions
+  needs an elevated client (verified: a standard-user CLI gets error -32005).
+- **Power mode revert on battery waits.** `PowerSetActiveOverlayScheme` sets
+  the mode for the current power source, so reverting while unplugged would
+  write the battery setting. The revert is retried every 30 s and at service
+  start until AC returns.
+- **Background actions need a live agent.** Without the app's foreground and
+  audio reports, Verity cannot honour the exclusion list, so background
+  actions are skipped until reports are fresh (15 s); the app now reports at
+  least every 5 s.
+- **Startup items: current user only** in v1; machine-wide items would need
+  an HKLM write not listed in `05-actions.md`.
+- **Restore point.** `system.restore_point` runs once before the first
+  persistent change. Windows' one-a-day limit is detected by comparing the
+  newest `SystemRestore` sequence number before and after; when none is made
+  the user must confirm (`--yes`, or the app's dialog). Seen on the dev laptop:
+  "skipped", Windows had already made one that day.
+- **Performance.** A session start first took 13.7 s for 118 processes
+  because each target listed all processes again; it lists once now: 88
+  processes in 0.22 s, reverted in 0.08 s (journal on disk).
+- No new external crates. `windows` features added: `Win32_System_LibraryLoader`,
+  `Win32_System_RemoteDesktop`, `Win32_System_Restore`, `Win32_System_Pipes`,
+  `Win32_Media_Audio`.
+
 ## 2026-11-24 — One-click junk cleanup, nothing opens Explorer
 
 The owner wants Storage to work like Microsoft PC Manager: detect junk and

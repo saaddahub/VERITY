@@ -77,8 +77,9 @@ Dependency direction: `sys ← core ← {telemetry, actions, store} ← {doctor,
 |---|---|
 | System | `system.info`, `system.capabilities` |
 | Doctor | `doctor.run`, `doctor.findings`, `doctor.dismiss` |
-| Actions | `actions.catalog`, `actions.plan` (dry-run), `actions.apply`, `actions.revert` |
-| Journal | `journal.list`, `journal.revert_session`, `journal.revert_all` |
+| Actions | `actions.catalog`, `actions.plan` (dry-run), `actions.apply` (service actions; elevated client only), `actions.revert` |
+| Journal | `journal.list`, `journal.revert_all`, and for agent actions `journal.record` / `journal.mark` (the agent journals its own per-user changes; rows carry the client's SID and only that user sees or changes them) |
+| Restore point | `system.restore_point` (once, before the first persistent change) |
 | Session | `session.status`, `session.start`, `session.stop`, `session.panic` |
 | History | `sessions.list`, `sessions.get`, `sessions.frames`, `sessions.events`, `sessions.delete` |
 | Story | `story.get`, `story.causes` |
@@ -86,7 +87,13 @@ Dependency direction: `sys ← core ← {telemetry, actions, store} ← {doctor,
 | Profiles | `profiles.get`, `profiles.set`, `profiles.reset` |
 | Lab | `lab.create`, `lab.next_step`, `lab.status`, `lab.result`, `lab.abort` |
 | Events | `subscribe { topics }` → notifications `session.state`, `telemetry.live`, `finding.new`, `journal.changed`, `lab.prompt` |
-| Agent (service → agent) | `agent.foreground`, `agent.apply`, `agent.revert`, `agent.audio_sessions`, `agent.notify` |
+| Agent (agent → service) | `agent.foreground { pid, audio }`: the foreground pid and the pids with an active audio session, sent on change and at least every 5 s. Background actions run only while these reports are fresh (15 s). |
+
+The pipe server reads each client's SID and elevation from its token
+(`ImpersonateNamedPipeClient` at identification level, `TokenUser`,
+`TokenElevation`) after the first read, and passes them to every method.
+M3 runs agent actions in the client process itself instead of the
+service calling `agent.apply` (see `docs/notes/decisions.md`).
 
 ## Storage
 

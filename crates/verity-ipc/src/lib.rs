@@ -1,6 +1,7 @@
 //! Service protocol: JSON-RPC 2.0 over `\\.\pipe\verity-v1`, each message a
 //! 4-byte little-endian length followed by UTF-8 JSON.
 
+pub mod agent;
 pub mod client;
 pub mod dispatch;
 pub mod framing;

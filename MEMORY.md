@@ -8,7 +8,7 @@ is next. Then follow `CLAUDE.md` (or `AGENTS.md` for Codex). Details live in
 **Keep it current:** at the end of every session, update "Last session",
 "Done" and "Next" below, then commit it with the work.
 
-Last updated: 2026-11-24
+Last updated: 2026-11-26
 
 ## What Verity is
 
@@ -36,6 +36,13 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
   0.1% lows, stutter (hitch) detection, GPU attribution, SQLite sessions, CSV
   export. Real-game check: Forza Horizon 5, 68.0 FPS average / 40.1 1% low,
   matching the owner's in-game counter.
+- **M3 Actions and journal, complete** (2026-11-26, built here because the
+  co-developer's M3 never reached GitHub; owner's call). Seven actions (power
+  mode, efficiency mode, efficiency cores, GPU preference, max refresh, Game
+  Mode, startup items), journal written before every change, crash recovery
+  at service start, exclusion list, restore point before the first lasting
+  change, `verity actions` / `verity journal` CLI. Session Mode now really
+  applies and undoes its changes. Admin tests: `tools/m3-admin.ps1`.
 - **Desktop app v0** (merged to `main` via PR #1, 2026-11-16): Checkup, Sessions,
   Record, one-prompt service setup. Design "Workshop Inspection Report",
   contract in `.impeccable/surfaces/apps-verity-ui.md`.
@@ -59,11 +66,9 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
    **M13 Malware Scan** (`docs/15-malware-scan.md`), reusing the WMI wrapper in
    `verity-sys::wmi`. M10 Process Rules and M11 Network Control wait for M3.
    Safety amendments for all four are approved in `docs/09-safety.md`.
-1. **Merge with the co-developer's M2 and M3** (they were pushing them on
-   2026-11-17 evening). Then: implement `SessionActions` in
-   `apps/verity-service/src/session_mode.rs` with M3's actions (background
-   EcoQoS/CPU sets for new processes, revert at session end), add Frame Story
-   rules D030–D034 to M2's Doctor, and finish the M4/M5 criteria that need them.
+1. **M2 Doctor is still the co-developer's** (not on GitHub). M3 is done
+   here: if they push their own M3, reconcile with `crates/verity-actions`
+   rather than keeping two. Then add Frame Story rules D030–D034 to M2.
 2. **Owner's manual checks for M4/M5:** sleep the laptop during a session;
    play a real game 15 minutes with Session Mode on (audio, voice chat, capture
    software normal); open that session's Frame Story and judge its top cause.

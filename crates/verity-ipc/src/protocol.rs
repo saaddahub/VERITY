@@ -16,6 +16,8 @@ pub const VERSION_MISMATCH: i64 = -32002;
 /// The request was valid but the capture could not run or finish.
 pub const CAPTURE_FAILED: i64 = -32003;
 pub const NOT_FOUND: i64 = -32004;
+/// The caller is not allowed to do this (a machine-wide change needs an elevated client).
+pub const FORBIDDEN: i64 = -32005;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Request {
