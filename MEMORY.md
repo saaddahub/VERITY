@@ -41,7 +41,8 @@ Spec: `docs/01-vision.md` to `docs/11-roadmap.md`. Who it is for: `PRODUCT.md`.
   mode, efficiency mode, efficiency cores, GPU preference, max refresh, Game
   Mode, startup items), journal written before every change, crash recovery
   at service start, exclusion list, restore point before the first lasting
-  change, `verity actions` / `verity journal` CLI. Session Mode now really
+  change, `verity actions` / `verity journal` CLI, and a Changes screen in the
+  app with "Undo everything" (also in the tray). Session Mode now really
   applies and undoes its changes. Admin tests: `tools/m3-admin.ps1`.
 - **Desktop app v0** (merged to `main` via PR #1, 2026-11-16): Checkup, Sessions,
   Record, one-prompt service setup. Design "Workshop Inspection Report",

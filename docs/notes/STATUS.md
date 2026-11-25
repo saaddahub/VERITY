@@ -98,6 +98,15 @@ journal protocol, exclusion list, session runner), `verity-core::actions`
   already made one that day, so Verity stopped and asked; with `--yes` Game
   Mode was turned on, and `verity actions revert` turned it back off.
 
+**Desktop app**
+- Changes screen: what is in effect, "Undo everything", Game Mode, refresh
+  rate, startup programs and per-game GPU choice, and a plain history grouped
+  by game session. Verified in the real app: Game Mode turned on from the
+  screen and put back from its history row (registry checked both times).
+- Tray menu: "Undo all Verity changes", works with the window closed.
+- The app reports the foreground app and apps playing sound every 5 s.
+- Games screen no longer says Verity changes nothing.
+
 **Not done**
 - `verity journal list --session` filter, and `journal.changed` notifications.
 - Machine-wide startup items (HKLM).

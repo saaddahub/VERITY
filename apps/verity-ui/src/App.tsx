@@ -6,13 +6,15 @@ import { Sessions } from "./screens/Sessions.tsx";
 import { Record } from "./screens/Record.tsx";
 import { Games } from "./screens/Games.tsx";
 import { Storage } from "./screens/Storage.tsx";
+import { Changes } from "./screens/Changes.tsx";
 
 export type Page =
   | { name: "checkup" }
   | { name: "sessions"; id?: number }
   | { name: "record" }
   | { name: "games" }
-  | { name: "storage" };
+  | { name: "storage" }
+  | { name: "changes" };
 
 export interface Data {
   service: ServiceState | null;
@@ -47,6 +49,7 @@ export function App() {
       else if (name === "record") setPageState({ name });
       else if (name === "games") setPageState({ name });
       else if (name === "storage") setPageState({ name });
+      else if (name === "changes") setPageState({ name });
       else setPageState({ name: "checkup" });
     };
     read();
@@ -128,6 +131,7 @@ export function App() {
     { page: "sessions", label: "Sessions", icon: "sessions" },
     { page: "record", label: "Record", icon: "record" },
     { page: "storage", label: "Storage", icon: "storage" },
+    { page: "changes", label: "Changes", icon: "changes" },
   ];
   const live = session?.status && session.status.state !== "idle" ? session.status : null;
   const line = service ? serviceLine[service.state] : null;
@@ -174,6 +178,7 @@ export function App() {
           {page.name === "record" && <Record data={data} go={setPage} />}
           {page.name === "games" && <Games data={data} go={setPage} />}
           {page.name === "storage" && <Storage data={data} />}
+          {page.name === "changes" && <Changes data={data} />}
         </div>
       </main>
       <Toasts

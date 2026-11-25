@@ -282,6 +282,27 @@ const health: Health = {
   volumes: [{ letter: "C", file_system: "NTFS", size: drive.total, free: drive.free }],
 };
 
+/* Changes: a real catalog subset and a journal shaped like one game session
+   plus one change made in the app. Sample data, not this PC. */
+const changeCatalog = [
+  { id: "power.session_overlay", title: "Best performance power mode while you play", scope: "session", executor: "service" },
+  { id: "sched.background_ecoqos", title: "Efficiency mode for background apps", scope: "session", executor: "service" },
+  { id: "gpu.preference", title: "Run a game on the high-performance GPU", scope: "persistent", executor: "agent" },
+  { id: "display.max_refresh", title: "Highest refresh rate for the display", scope: "persistent", executor: "agent" },
+  { id: "gamemode.enable", title: "Turn on Game Mode", scope: "persistent", executor: "agent" },
+  { id: "startup.disable_item", title: "Stop a program starting with Windows", scope: "persistent", executor: "agent" },
+].map((a) => ({ risk: "low", needs_reboot: false, default_enabled: false, what: "", why: "", downside: "", undo: "", ...a }));
+const journalRow = (id: number, txn: string, action_id: string, state: string, params: object, executor = "service") => ({
+  id, txn_id: txn, action_id, scope: executor === "service" ? "session" : "persistent", executor, params,
+  snapshot: {}, owner: "", state, created_utc: "2026-11-26T09:41:00Z", applied_utc: null, reverted_utc: null, error: null,
+});
+const journal = [
+  journalRow(1, "session-1", "power.session_overlay", "reverted", {}),
+  ...["chrome.exe", "Spotify.exe", "OneDrive.exe", "steamwebhelper.exe", "Code.exe"].map((name, i) =>
+    journalRow(2 + i, "session-1", "sched.background_ecoqos", i === 1 ? "superseded" : "reverted", { name })),
+  journalRow(9, "app-1", "gamemode.enable", "applied", {}, "agent"),
+];
+
 export async function preview<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 120));
   const id = Number(args?.id);
@@ -312,7 +333,24 @@ export async function preview<T>(cmd: string, args?: Record<string, unknown>): P
     storage_duplicates: [],
     storage_suggestions: suggestions,
     storage_health: health,
+    changes_catalog: changeCatalog,
+    changes_list: journal,
+    changes_startup_items: [
+      { name: "Steam", place: "run", enabled: true },
+      { name: "Discord", place: "run", enabled: true },
+      { name: "OneDrive", place: "run", enabled: false },
+      { name: "Ollama.lnk", place: "startup_folder", enabled: true },
+    ],
   };
+  if (cmd === "changes_plan") {
+    const plans: Record<string, unknown> = {
+      "gamemode.enable": { change: null, not_applicable: "Game Mode is already on" },
+      "display.max_refresh": { change: "\\\\.\\DISPLAY1: 60 Hz -> 144 Hz at 1920x1080" },
+    };
+    return (plans[String(args?.id)] ?? { change: "sample change" }) as T;
+  }
+  if (["changes_apply", "changes_revert", "changes_undo_all"].includes(cmd))
+    throw new Error("Not available in the design preview.");
   if (cmd === "storage_children") return folderFor(id) as T;
   if (cmd === "storage_junk_catalog") return junkCatalog as T;
   if (cmd === "storage_junk_measure")

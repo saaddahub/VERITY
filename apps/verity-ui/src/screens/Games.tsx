@@ -108,7 +108,9 @@ export function Games({ data, go }: { data: Data; go: (p: Page) => void }) {
           </h1>
           <p>
             Verity records every game in this list while you play, then shows how smoothly it ran and what each stutter
-            coincides with. It does not change any Windows settings.
+            coincides with. While a game runs it also switches to the Best performance power mode (when plugged in)
+            and puts background apps in efficiency mode, then puts both back when the game closes. Every change is
+            listed on Changes.
           </p>
           {meta && <div className="meta">{meta}</div>}
         </div>

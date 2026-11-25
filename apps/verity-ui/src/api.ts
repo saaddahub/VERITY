@@ -241,6 +241,46 @@ export interface Health {
   volumes: { letter: string; file_system: string; size: number; free: number }[];
 }
 
+/* ---------- Changes (docs/05-actions.md) ---------- */
+export interface ActionInfo {
+  id: string;
+  title: string;
+  scope: "session" | "persistent";
+  executor: "service" | "agent";
+  risk: "low" | "medium";
+  needs_reboot: boolean;
+  default_enabled: boolean;
+  what: string;
+  why: string;
+  downside: string;
+  undo: string;
+}
+export interface JournalRow {
+  id: number;
+  txn_id: string;
+  action_id: string;
+  scope: "session" | "persistent";
+  executor: "service" | "agent";
+  params: unknown;
+  snapshot: unknown;
+  owner: string;
+  state: "pending" | "applied" | "reverted" | "revert_failed" | "superseded";
+  created_utc: string;
+  applied_utc: string | null;
+  reverted_utc: string | null;
+  error: string | null;
+}
+export interface StartupItem {
+  name: string;
+  place: "run" | "startup_folder";
+  enabled: boolean;
+}
+export interface Plan {
+  change: string | null;
+  not_applicable?: string;
+}
+export type ApplyResult = { status: "applied"; id: number } | { status: "needs_consent"; reason: string };
+
 export type ServiceState =
   | { state: "running" }
   | { state: "stopped" }
@@ -282,6 +322,18 @@ export const api = {
     invoke<unknown>("games_answer", { exe, answer }),
   story: (id: number) => invoke<StoryData>("story_get", { id }),
   storyExport: (id: number) => invoke<string>("story_export", { id }),
+};
+
+/** Changes: per-user actions run in the app as the user; the journal lives in the service. */
+export const changes = {
+  catalog: () => invoke<ActionInfo[]>("changes_catalog"),
+  list: () => invoke<JournalRow[]>("changes_list"),
+  startupItems: () => invoke<StartupItem[]>("changes_startup_items"),
+  plan: (id: string, params: Record<string, unknown> = {}) => invoke<Plan>("changes_plan", { id, params }),
+  apply: (id: string, params: Record<string, unknown> = {}, proceedWithout = false) =>
+    invoke<ApplyResult>("changes_apply", { id, params, proceedWithout }),
+  revert: (id: number) => invoke<unknown>("changes_revert", { id }),
+  undoAll: () => invoke<unknown>("changes_undo_all"),
 };
 
 /** Listens to a Tauri event; in the browser preview nothing is ever sent. */
